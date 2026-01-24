@@ -212,7 +212,7 @@ export default function Subscribers() {
             style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }}
             onClick={() => router.push('/')}
           >
-            <img src="/logo.png" alt="ScanED Logo" style={{ width: '48px', height: '48px' }} />
+            <img src="https://firebasestorage.googleapis.com/v0/b/scaned-1f910.firebasestorage.app/o/logo.png?alt=media" alt="ScanED Logo" style={{ width: '48px', height: '48px' }} />
             <span style={{ fontSize: '24px', fontWeight: 'bold', color: '#111827' }}>ScanED</span>
           </div>
 
