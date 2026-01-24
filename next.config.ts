@@ -9,10 +9,8 @@ const nextConfig: NextConfig = {
   },
   images: {
     unoptimized: true,
-    domains: ['scaned-website--scaned-1f910.asia-southeast1.hosted.app'],
   },
-  // This ensures public assets are correctly handled
-  assetPrefix: process.env.NODE_ENV === 'production' ? '' : '',
+  output: 'standalone',
 };
 
 export default nextConfig;
