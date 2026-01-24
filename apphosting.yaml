@@ -1,0 +1,28 @@
+runConfig:
+  concurrency: 100
+  cpu: 1
+  memoryMiB: 512
+  minInstances: 0
+  maxInstances: 4
+
+env:
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    value: AIzaSyDHBg7AAxaI_s0x29iS8YL5YobFqE2AvVg
+    
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    value: scaned-1f910.firebaseapp.com
+    
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: scaned-1f910
+    
+  - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+    value: scaned-1f910.firebasestorage.app
+    
+  - variable: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+    value: "370075702754"
+    
+  - variable: NEXT_PUBLIC_FIREBASE_APP_ID
+    value: 1:370075702754:web:35124bd08a0f03255d15bb
+    
+  - variable: NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
+    value: G-LV7WVQZJ0V
