@@ -299,10 +299,10 @@ export default function Home() {
               style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }}
               onClick={() => router.push('/')}
             >
-             <Image 
-  src="/logo.png" 
-  alt="ScanED Logo" 
-  width={48} 
+            <Image 
+  src="https://firebasestorage.googleapis.com/v0/b/scaned-1f910.firebasestorage.app/o/logo.png?alt=media"
+  alt="ScanED Logo"
+  width={48}
   height={48}
   priority
   unoptimized
@@ -420,8 +420,8 @@ export default function Home() {
             <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: 'center', gap: isMobile ? '32px' : '80px', justifyContent: 'center' }}>
               
               <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'center' }}>
-               <Image 
-  src="/hero.png" 
+             <Image 
+  src="https://firebasestorage.googleapis.com/v0/b/scaned-1f910.firebasestorage.app/o/hero.png?alt=media"
   alt="ScanED Education Tracker"
   width={400}
   height={400}

@@ -9,8 +9,13 @@ const nextConfig: NextConfig = {
   },
   images: {
     unoptimized: true,
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'firebasestorage.googleapis.com',
+      },
+    ],
   },
-  output: 'standalone',
 };
 
 export default nextConfig;
