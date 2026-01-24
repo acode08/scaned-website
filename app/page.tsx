@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { db } from '@/lib/firebase';
 import { collection, query, where, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
+import Image from 'next/image'
 
 export default function Home() {
   const router = useRouter();
@@ -298,7 +299,14 @@ export default function Home() {
               style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }}
               onClick={() => router.push('/')}
             >
-              <img src="/logo.png" alt="ScanED Logo" style={{ width: '48px', height: '48px' }} />
+             <Image 
+  src="/logo.png" 
+  alt="ScanED Logo" 
+  width={48} 
+  height={48}
+  priority
+  unoptimized
+/>
               <span style={{ fontSize: '24px', fontWeight: 'bold', color: '#111827' }}>ScanED</span>
             </div>
 
@@ -412,16 +420,20 @@ export default function Home() {
             <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: 'center', gap: isMobile ? '32px' : '80px', justifyContent: 'center' }}>
               
               <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'center' }}>
-                <img 
-                  src="/hero.png" 
-                  alt="ScanED Education Tracker" 
-                  style={{
-                    width: '100%',
-                    maxWidth: isMobile ? '280px' : '400px',
-                    height: 'auto',
-                    filter: 'drop-shadow(0 25px 60px rgba(0,0,0,0.15))'
-                  }}
-                />
+               <Image 
+  src="/hero.png" 
+  alt="ScanED Education Tracker"
+  width={400}
+  height={400}
+  priority
+  unoptimized
+  style={{
+    width: '100%',
+    maxWidth: isMobile ? '280px' : '400px',
+    height: 'auto',
+    filter: 'drop-shadow(0 25px 60px rgba(0,0,0,0.15))'
+  }}
+/>
               </div>
 
               <div style={{ flex: '1', minWidth: isMobile ? '100%' : '300px', maxWidth: '600px', textAlign: isMobile ? 'center' : 'left' }}>
