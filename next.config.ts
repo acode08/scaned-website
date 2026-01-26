@@ -1,12 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  typescript: {
-    ignoreBuildErrors: true,
-  },
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
+  // output: 'export', // COMMENTED OUT
   images: {
     unoptimized: true,
     remotePatterns: [
@@ -15,6 +10,12 @@ const nextConfig: NextConfig = {
         hostname: 'firebasestorage.googleapis.com',
       },
     ],
+  },
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+  eslint: {
+    ignoreDuringBuilds: true,
   },
 };
 
