@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { db } from '@/lib/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts'; // ADD THIS LINE
 
 export default function SchoolDashboard() {
   const router = useRouter();
@@ -24,6 +25,10 @@ export default function SchoolDashboard() {
   // Mobile responsive state
   const [isMobile, setIsMobile] = useState(false);
   
+  // Analytics States
+  const [todayScans, setTodayScans] = useState({ amIn: 0, amOut: 0, pmIn: 0, pmOut: 0 });
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  
   // Check if mobile on mount and resize
   useEffect(() => {
     const checkMobile = () => {
@@ -37,7 +42,9 @@ export default function SchoolDashboard() {
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
+  
   const [downloadingPDF, setDownloadingPDF] = useState(false);
+  
   // Modal States
   const [showStudentListModal, setShowStudentListModal] = useState(false);
   const [selectedSection, setSelectedSection] = useState<any>(null);
@@ -64,6 +71,64 @@ export default function SchoolDashboard() {
   const [unlockedSections, setUnlockedSections] = useState<Set<string>>(new Set());
   const [pendingSection, setPendingSection] = useState<any>(null);
   const [pendingAction, setPendingAction] = useState<string>('');
+
+  // Fetch today's scans for analytics
+  const fetchTodayScans = async (schoolIdParam: string) => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const attendanceQuery = query(collection(db, 'attendance'));
+      const attendanceSnapshot = await getDocs(attendanceQuery);
+      
+      let amInCount = 0;
+      let amOutCount = 0;
+      let pmInCount = 0;
+      let pmOutCount = 0;
+      
+      attendanceSnapshot.docs.forEach(doc => {
+        const data = doc.data();
+        
+        // Check if belongs to this school
+        if (!data.schoolId || data.schoolId !== schoolIdParam) return;
+        
+        try {
+          let scanDateTime: Date;
+          
+          if (data.scanDateTime && typeof data.scanDateTime === 'object' && data.scanDateTime.toDate) {
+            scanDateTime = data.scanDateTime.toDate();
+          } else if (data.scanDateTime) {
+            scanDateTime = new Date(data.scanDateTime);
+          } else {
+            return;
+          }
+          
+          if (isNaN(scanDateTime.getTime())) return;
+          
+          const scanDate = scanDateTime.toISOString().split('T')[0];
+          
+          if (scanDate === today) {
+            const action = (data.action || '').toUpperCase();
+            const session = data.session || 'WD';
+            
+            if ((session === 'AM' || session === 'WD AM' || session === 'WD') && action === 'IN') {
+              amInCount++;
+            } else if ((session === 'AM' || session === 'WD AM' || session === 'WD') && action === 'OUT') {
+              amOutCount++;
+            } else if ((session === 'PM' || session === 'WD PM' || session === 'WD') && action === 'IN') {
+              pmInCount++;
+            } else if ((session === 'PM' || session === 'WD PM' || session === 'WD') && action === 'OUT') {
+              pmOutCount++;
+            }
+          }
+        } catch (err) {
+          console.error('Error processing scan:', err);
+        }
+      });
+      
+      setTodayScans({ amIn: amInCount, amOut: amOutCount, pmIn: pmInCount, pmOut: pmOutCount });
+    } catch (error) {
+      console.error('Error fetching today scans:', error);
+    }
+  };
 
   // useEffect for fetching school data
   useEffect(() => {
@@ -143,6 +208,9 @@ export default function SchoolDashboard() {
         });
         
         setStudentCounts(counts);
+        
+        // Fetch today's scans
+        await fetchTodayScans(storedSchoolId);
 
       } catch (error) {
         console.error('Error fetching data:', error);
@@ -182,12 +250,11 @@ export default function SchoolDashboard() {
     }
   };
 
-  // ✅ PIN VALIDATION - Submit PIN (Validate against pincodes collection)
+  // PIN VALIDATION - Submit PIN
   const handlePinSubmit = async () => {
     if (!pendingSection) return;
 
     try {
-      // Query pincodes collection using the entered code
       const pincodeQuery = query(
         collection(db, 'pincodes'),
         where('code', '==', pinInput)
@@ -197,11 +264,9 @@ export default function SchoolDashboard() {
       if (!pincodeSnapshot.empty) {
         const pincodeData = pincodeSnapshot.docs[0].data();
         
-        // Check if the pincode matches the section
         if (pincodeData.sectionId === pendingSection.sectionId && 
             pincodeData.schoolId === schoolId && 
             pincodeData.isActive === true) {
-          // PIN is correct and active
           const newUnlocked = new Set(unlockedSections);
           newUnlocked.add(pendingSection.sectionId);
           setUnlockedSections(newUnlocked);
@@ -210,7 +275,6 @@ export default function SchoolDashboard() {
           setPinInput('');
           setPinError('');
           
-          // If there's a pending action, execute it
           if (pendingAction && pendingAction !== 'unlock') {
             executeAction(pendingSection, pendingAction);
           }
@@ -244,7 +308,7 @@ export default function SchoolDashboard() {
     }
   };
 
-  // BUTTON CLICK HANDLER - Check if unlocked before action
+  // BUTTON CLICK HANDLER
   const handleActionClick = (section: any, action: string) => {
     if (!unlockedSections.has(section.sectionId)) {
       setPendingSection(section);
@@ -300,6 +364,7 @@ export default function SchoolDashboard() {
   };
 
   const totalStudents = Object.values(studentCounts).reduce((sum, count) => sum + count, 0);
+  const totalScansToday = todayScans.amIn + todayScans.amOut + todayScans.pmIn + todayScans.pmOut;
 
   const handleOpenStudentList = async (section: any) => {
     setSelectedSection(section);
@@ -388,7 +453,7 @@ export default function SchoolDashboard() {
     await fetchAttendanceRecords(fullSectionName, new Date().toISOString().split('T')[0], new Date().toISOString().split('T')[0], 'all');
   };
 
-    const fetchAttendanceRecords = async (sectionName: string, from: string, to: string, studentFilter: string) => {
+  const fetchAttendanceRecords = async (sectionName: string, from: string, to: string, studentFilter: string) => {
     try {
       const attendanceQuery = query(collection(db, 'attendance'));
       const attendanceSnapshot = await getDocs(attendanceQuery);
@@ -440,11 +505,9 @@ export default function SchoolDashboard() {
         });
       });
 
-      // Sort by datetime
       allScans.sort((a, b) => a.scanDateTime.getTime() - b.scanDateTime.getTime());
 
       if (studentFilter !== 'all') {
-        // INDIVIDUAL STUDENT - Show ALL records
         const records: any[] = [];
         
         allScans.forEach(scan => {
@@ -466,7 +529,6 @@ export default function SchoolDashboard() {
         setAttendanceRecords(records);
         
       } else {
-        // ALL STUDENTS - Show only FIRST IN and LAST OUT per day per student
         const attendanceMap: Record<string, Record<string, any>> = {};
         
         allScans.forEach(scan => {
@@ -491,38 +553,35 @@ export default function SchoolDashboard() {
           
           const record = attendanceMap[studentId][date];
           
-          // For WD sessions
           if (session === 'WD' || session === 'WD AM') {
             if (action === 'IN') {
-              if (!record.amIn) record.amIn = time; // First WD AM IN
+              if (!record.amIn) record.amIn = time;
             } else if (action === 'OUT') {
-              record.amOut = time; // Last WD AM OUT (will be overwritten)
+              record.amOut = time;
             }
           }
           
           if (session === 'WD' || session === 'WD PM') {
             if (action === 'IN') {
-              if (!record.pmIn) record.pmIn = time; // First WD PM IN
+              if (!record.pmIn) record.pmIn = time;
             } else if (action === 'OUT') {
-              record.pmOut = time; // Last WD PM OUT (will be overwritten)
+              record.pmOut = time;
             }
           }
           
-          // For AM sessions
           if (session === 'AM') {
             if (action === 'IN') {
-              if (!record.amIn) record.amIn = time; // First AM IN
+              if (!record.amIn) record.amIn = time;
             } else if (action === 'OUT') {
-              record.amOut = time; // Last AM OUT (will be overwritten)
+              record.amOut = time;
             }
           }
           
-          // For PM sessions
           if (session === 'PM') {
             if (action === 'IN') {
-              if (!record.pmIn) record.pmIn = time; // First PM IN
+              if (!record.pmIn) record.pmIn = time;
             } else if (action === 'OUT') {
-              record.pmOut = time; // Last PM OUT (will be overwritten)
+              record.pmOut = time;
             }
           }
         });
@@ -547,7 +606,7 @@ export default function SchoolDashboard() {
     }
   };
 
-   const handleOpenTopAttendees = async (section: any) => {
+  const handleOpenTopAttendees = async (section: any) => {
     setSelectedSection(section);
     setShowTopAttendeesModal(true);
     setTopCount(10);
@@ -583,7 +642,6 @@ export default function SchoolDashboard() {
       const attendanceQuery = query(collection(db, 'attendance'));
       const attendanceSnapshot = await getDocs(attendanceQuery);
       
-      // Group attendance by student and date to calculate correct counts
       const studentDateMap: Record<string, Record<string, { amIn: boolean, amOut: boolean, pmIn: boolean, pmOut: boolean, session: string }>> = {};
       
       attendanceSnapshot.docs.forEach(doc => {
@@ -623,7 +681,6 @@ export default function SchoolDashboard() {
           
           const record = studentDateMap[data.studentId][scanDate];
           
-          // Track IN and OUT for each session
           if (session === 'WD' || session === 'WD AM') {
             if (action === 'IN') record.amIn = true;
             if (action === 'OUT') record.amOut = true;
@@ -650,7 +707,6 @@ export default function SchoolDashboard() {
         }
       });
 
-      // Calculate attendance counts based on session rules
       students.forEach(student => {
         let totalCount = 0;
         const studentDates = studentDateMap[student.studentId] || {};
@@ -659,19 +715,16 @@ export default function SchoolDashboard() {
           const { amIn, amOut, pmIn, pmOut, session } = record;
           
           if (session === 'WD' || session === 'WD AM' || session === 'WD PM') {
-            // WD Session: 0.5 if AM IN only, 1.0 if AM IN + PM OUT
             if (amIn && pmOut) {
               totalCount += 1.0;
             } else if (amIn) {
               totalCount += 0.5;
             }
           } else if (session === 'AM') {
-            // AM Session: 1.0 if AM IN + AM OUT
             if (amIn && amOut) {
               totalCount += 1.0;
             }
           } else if (session === 'PM') {
-            // PM Session: 1.0 if PM IN + PM OUT
             if (pmIn && pmOut) {
               totalCount += 1.0;
             }
@@ -835,20 +888,17 @@ export default function SchoolDashboard() {
         <title>Student List</title>
         <style>
           body { font-family: Arial, sans-serif; padding: 20px; margin: 0; }
-          h1 { text-align: center; font-size: 20px; margin: 0; }
-          .header { text-align: center; margin-bottom: 30px; }
-          .header p { margin: 2px 0; font-size: 12px; color: #666; }
-          .section-title { font-size: 14px; font-weight: bold; margin: 20px 0 10px 0; padding-bottom: 5px; border-bottom: 2px solid #249E94; }
-          table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 12px; }
-          th { background-color: #f5f5f5; padding: 8px; text-align: left; font-weight: 600; border: 1px solid #ddd; }
-          td { padding: 8px; border: 1px solid #ddd; }
-          .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; display: flex; justify-content: space-between; font-size: 11px; }
+          h1 { text-align: center; font-size: 18px; margin: 0; }
+          .header { text-align: center; margin-bottom: 20px; }
+          .header p { margin: 2px 0; font-size: 11px; color: #666; }
+          .section-title { font-size: 13px; font-weight: bold; margin: 15px 0 8px 0; padding-bottom: 4px; border-bottom: 2px solid #249E94; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 15px; font-size: 11px; }
+          th { background-color: #f5f5f5; padding: 6px; text-align: left; font-weight: 600; border: 1px solid #ddd; }
+          td { padding: 6px; border: 1px solid #ddd; }
+          .footer { margin-top: 30px; padding-top: 15px; border-top: 1px solid #ddd; display: flex; justify-content: space-between; font-size: 10px; }
           @media print { 
-            @page { 
-              size: A4 portrait; 
-              margin: 15mm 15mm 20mm 15mm;
-            }
-            body { margin: 0; padding: 15mm; }
+            @page { size: A4 portrait; margin: 15mm; }
+            body { margin: 0; padding: 10mm; }
           }
         </style>
       </head>
@@ -857,10 +907,10 @@ export default function SchoolDashboard() {
           <h1>${schoolData?.schoolName || ''}</h1>
           <p>School ID: ${schoolId}</p>
           <p>${schoolData?.address || ''}</p>
-          <div style="margin-top: 15px; padding: 8px; background: #f5f5f5; display: inline-block; border-radius: 4px;">
-            <strong>STUDENT LIST</strong>
+          <div style="margin-top: 12px; padding: 6px; background: #f5f5f5; display: inline-block; border-radius: 4px;">
+            <strong style="font-size: 12px;">STUDENT LIST</strong>
           </div>
-          <p style="margin-top: 10px;"><strong>${selectedSection?.sectionName}</strong> • ${selectedSection?.adviser}</p>
+          <p style="margin-top: 8px;"><strong>${selectedSection?.sectionName}</strong> • ${selectedSection?.adviser}</p>
         </div>
         
         ${maleStudents.length > 0 ? `
@@ -868,10 +918,10 @@ export default function SchoolDashboard() {
           <table>
             <thead>
               <tr>
-                <th>NO.</th>
+                <th style="width: 40px;">NO.</th>
                 <th>NAME</th>
                 <th>MOBILE</th>
-                <th>STATUS</th>
+                <th style="width: 80px; text-align: center;">STATUS</th>
               </tr>
             </thead>
             <tbody>
@@ -880,7 +930,7 @@ export default function SchoolDashboard() {
                   <td>${index + 1}</td>
                   <td>${student.name}</td>
                   <td>${student.mobileNumber}</td>
-                  <td>${student.status}</td>
+                  <td style="text-align: center;">${student.status}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -892,10 +942,10 @@ export default function SchoolDashboard() {
           <table>
             <thead>
               <tr>
-                <th>NO.</th>
+                <th style="width: 40px;">NO.</th>
                 <th>NAME</th>
                 <th>MOBILE</th>
-                <th>STATUS</th>
+                <th style="width: 80px; text-align: center;">STATUS</th>
               </tr>
             </thead>
             <tbody>
@@ -904,7 +954,7 @@ export default function SchoolDashboard() {
                   <td>${index + 1}</td>
                   <td>${student.name}</td>
                   <td>${student.mobileNumber}</td>
-                  <td>${student.status}</td>
+                  <td style="text-align: center;">${student.status}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -913,14 +963,14 @@ export default function SchoolDashboard() {
         
         <div class="footer">
           <div>
-            <p style="margin: 0; color: #666; font-size: 10px;">Prepared by</p>
-            <p style="margin: 4px 0 0 0; font-weight: 600; font-size: 13px;">${selectedSection?.adviser}</p>
-            <p style="margin: 20px 0 0 0;">____________________</p>
-            <p style="margin: 4px 0 0 0; font-size: 9px; color: #666;">Signature</p>
+            <p style="margin: 0; color: #666; font-size: 9px;">Prepared by</p>
+            <p style="margin: 4px 0 0 0; font-weight: 600; font-size: 12px;">${selectedSection?.adviser}</p>
+            <p style="margin: 15px 0 0 0;">____________________</p>
+            <p style="margin: 4px 0 0 0; font-size: 8px; color: #666;">Signature</p>
           </div>
           <div style="text-align: right;">
-            <p style="margin: 0; font-size: 10px; color: #666;">Printed as of</p>
-            <p style="margin: 4px 0 0 0; font-size: 12px;">${new Date().toLocaleDateString('en-US', { 
+            <p style="margin: 0; font-size: 9px; color: #666;">Printed as of</p>
+            <p style="margin: 4px 0 0 0; font-size: 11px;">${new Date().toLocaleDateString('en-US', { 
               year: 'numeric', 
               month: 'long', 
               day: 'numeric',
@@ -955,21 +1005,18 @@ export default function SchoolDashboard() {
         <title>Attendance Report</title>
         <style>
           body { font-family: Arial, sans-serif; padding: 20px; margin: 0; }
-          h1 { text-align: center; font-size: 20px; margin: 0; }
-          .header { text-align: center; margin-bottom: 30px; }
-          .header p { margin: 2px 0; font-size: 12px; color: #666; }
-          .filters { text-align: center; margin-bottom: 20px; padding: 10px; background: #f5f5f5; border-radius: 4px; font-size: 12px; }
-          table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 12px; }
-          th { background-color: #f5f5f5; padding: 8px; text-align: left; font-weight: 600; border: 1px solid #ddd; }
-          td { padding: 8px; border: 1px solid #ddd; }
+          h1 { text-align: center; font-size: 18px; margin: 0; }
+          .header { text-align: center; margin-bottom: 20px; }
+          .header p { margin: 2px 0; font-size: 11px; color: #666; }
+          .filters { text-align: center; margin-bottom: 15px; padding: 8px; background: #f5f5f5; border-radius: 4px; font-size: 11px; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 15px; font-size: 11px; }
+          th { background-color: #f5f5f5; padding: 6px; text-align: left; font-weight: 600; border: 1px solid #ddd; }
+          td { padding: 6px; border: 1px solid #ddd; }
           .center { text-align: center; }
-          .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; display: flex; justify-content: space-between; font-size: 11px; }
+          .footer { margin-top: 30px; padding-top: 15px; border-top: 1px solid #ddd; display: flex; justify-content: space-between; font-size: 10px; }
           @media print { 
-            @page { 
-              size: A4 portrait; 
-              margin: 15mm 15mm 20mm 15mm;
-            }
-            body { margin: 0; padding: 15mm; }
+            @page { size: A4 portrait; margin: 15mm; }
+            body { margin: 0; padding: 10mm; }
           }
         </style>
       </head>
@@ -978,10 +1025,10 @@ export default function SchoolDashboard() {
           <h1>${schoolData?.schoolName || ''}</h1>
           <p>School ID: ${schoolId}</p>
           <p>${schoolData?.address || ''}</p>
-          <div style="margin-top: 15px; padding: 8px; background: #f5f5f5; display: inline-block; border-radius: 4px;">
-            <strong>ATTENDANCE REPORT</strong>
+          <div style="margin-top: 12px; padding: 6px; background: #f5f5f5; display: inline-block; border-radius: 4px;">
+            <strong style="font-size: 12px;">ATTENDANCE REPORT</strong>
           </div>
-          <p style="margin-top: 10px;"><strong>${selectedSection?.sectionName}</strong> • ${selectedSection?.adviser}</p>
+          <p style="margin-top: 8px;"><strong>${selectedSection?.sectionName}</strong> • ${selectedSection?.adviser}</p>
         </div>
         
         <div class="filters">
@@ -992,17 +1039,19 @@ export default function SchoolDashboard() {
         <table>
           <thead>
             <tr>
+              <th style="width: 30px;" class="center">NO.</th>
               ${isAllStudents ? '<th>STUDENT NAME</th>' : ''}
-              <th>DATE</th>
-              <th class="center">AM IN</th>
-              <th class="center">AM OUT</th>
-              <th class="center">PM IN</th>
-              <th class="center">PM OUT</th>
+              <th style="width: 80px;">DATE</th>
+              <th class="center" style="width: 60px;">AM IN</th>
+              <th class="center" style="width: 60px;">AM OUT</th>
+              <th class="center" style="width: 60px;">PM IN</th>
+              <th class="center" style="width: 60px;">PM OUT</th>
             </tr>
           </thead>
           <tbody>
-            ${attendanceRecords.length > 0 ? attendanceRecords.map(record => `
+            ${attendanceRecords.length > 0 ? attendanceRecords.map((record, index) => `
               <tr>
+                <td class="center">${index + 1}</td>
                 ${isAllStudents ? `<td>${record.studentName}</td>` : ''}
                 <td>${new Date(record.date).toLocaleDateString('en-US', { 
                   month: 'short', 
@@ -1014,20 +1063,20 @@ export default function SchoolDashboard() {
                 <td class="center" style="color: #249E94; font-weight: 600;">${record.pmIn || '-'}</td>
                 <td class="center">${record.pmOut || '-'}</td>
               </tr>
-            `).join('') : `<tr><td colspan="${isAllStudents ? '6' : '5'}" style="text-align: center; color: #666;">No records found</td></tr>`}
+            `).join('') : `<tr><td colspan="${isAllStudents ? '7' : '6'}" style="text-align: center; color: #666;">No records found</td></tr>`}
           </tbody>
         </table>
         
         <div class="footer">
           <div>
-            <p style="margin: 0; color: #666; font-size: 10px;">Prepared by</p>
-            <p style="margin: 4px 0 0 0; font-weight: 600; font-size: 13px;">${selectedSection?.adviser}</p>
-            <p style="margin: 20px 0 0 0;">____________________</p>
-            <p style="margin: 4px 0 0 0; font-size: 9px; color: #666;">Signature</p>
+            <p style="margin: 0; color: #666; font-size: 9px;">Prepared by</p>
+            <p style="margin: 4px 0 0 0; font-weight: 600; font-size: 12px;">${selectedSection?.adviser}</p>
+            <p style="margin: 15px 0 0 0;">____________________</p>
+            <p style="margin: 4px 0 0 0; font-size: 8px; color: #666;">Signature</p>
           </div>
           <div style="text-align: right;">
-            <p style="margin: 0; font-size: 10px; color: #666;">Printed as of</p>
-            <p style="margin: 4px 0 0 0; font-size: 12px;">${new Date().toLocaleDateString('en-US', { 
+            <p style="margin: 0; font-size: 9px; color: #666;">Printed as of</p>
+            <p style="margin: 4px 0 0 0; font-size: 11px;">${new Date().toLocaleDateString('en-US', { 
               year: 'numeric', 
               month: 'long', 
               day: 'numeric',
@@ -1062,21 +1111,18 @@ export default function SchoolDashboard() {
         <title>Top Attendees Report</title>
         <style>
           body { font-family: Arial, sans-serif; padding: 20px; margin: 0; }
-          h1 { text-align: center; font-size: 20px; margin: 0; }
-          .header { text-align: center; margin-bottom: 30px; }
-          .header p { margin: 2px 0; font-size: 12px; color: #666; }
-          table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 12px; }
-          th { background-color: #f5f5f5; padding: 10px; text-align: left; font-weight: 600; border: 1px solid #ddd; }
-          td { padding: 10px; border: 1px solid #ddd; }
+          h1 { text-align: center; font-size: 18px; margin: 0; }
+          .header { text-align: center; margin-bottom: 20px; }
+          .header p { margin: 2px 0; font-size: 11px; color: #666; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 15px; font-size: 11px; }
+          th { background-color: #f5f5f5; padding: 8px; text-align: left; font-weight: 600; border: 1px solid #ddd; }
+          td { padding: 8px; border: 1px solid #ddd; }
           .center { text-align: center; }
-          .rank { font-weight: 700; font-size: 14px; color: #249E94; }
-          .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; display: flex; justify-content: space-between; font-size: 11px; }
+          .rank { font-weight: 700; font-size: 13px; color: #249E94; }
+          .footer { margin-top: 30px; padding-top: 15px; border-top: 1px solid #ddd; display: flex; justify-content: space-between; font-size: 10px; }
           @media print { 
-            @page { 
-              size: A4 portrait; 
-              margin: 15mm 15mm 20mm 15mm;
-            }
-            body { margin: 0; padding: 15mm; }
+            @page { size: A4 portrait; margin: 15mm; }
+            body { margin: 0; padding: 10mm; }
           }
         </style>
       </head>
@@ -1085,19 +1131,19 @@ export default function SchoolDashboard() {
           <h1>${schoolData?.schoolName || ''}</h1>
           <p>School ID: ${schoolId}</p>
           <p>${schoolData?.address || ''}</p>
-          <div style="margin-top: 15px; padding: 8px; background: #f5f5f5; display: inline-block; border-radius: 4px;">
-            <strong>TOP ${topCount} ATTENDEES</strong>
+          <div style="margin-top: 12px; padding: 6px; background: #f5f5f5; display: inline-block; border-radius: 4px;">
+            <strong style="font-size: 12px;">TOP ${topCount} ATTENDEES</strong>
           </div>
-          <p style="margin-top: 10px;"><strong>${selectedSection?.sectionName}</strong> • ${selectedSection?.adviser}</p>
+          <p style="margin-top: 8px;"><strong>${selectedSection?.sectionName}</strong> • ${selectedSection?.adviser}</p>
         </div>
         
         <table>
           <thead>
             <tr>
-              <th class="center" style="width: 80px;">RANK</th>
+              <th class="center" style="width: 60px;">RANK</th>
               <th>STUDENT NAME</th>
-              <th class="center">ATTENDANCE COUNT</th>
-              <th>STATUS</th>
+              <th class="center" style="width: 120px;">ATTENDANCE COUNT</th>
+              <th class="center" style="width: 80px;">STATUS</th>
             </tr>
           </thead>
           <tbody>
@@ -1105,8 +1151,8 @@ export default function SchoolDashboard() {
               <tr>
                 <td class="center rank">${index + 1}</td>
                 <td>${student.name}</td>
-                <td class="center" style="color: #249E94; font-weight: 600; font-size: 14px;">${student.attendanceCount}</td>
-                <td>${student.status}</td>
+                <td class="center" style="color: #249E94; font-weight: 600; font-size: 13px;">${student.attendanceCount}</td>
+                <td class="center">${student.status}</td>
               </tr>
             `).join('')}
           </tbody>
@@ -1114,14 +1160,14 @@ export default function SchoolDashboard() {
         
         <div class="footer">
           <div>
-            <p style="margin: 0; color: #666; font-size: 10px;">Prepared by</p>
-            <p style="margin: 4px 0 0 0; font-weight: 600; font-size: 13px;">${selectedSection?.adviser}</p>
-            <p style="margin: 20px 0 0 0;">____________________</p>
-            <p style="margin: 4px 0 0 0; font-size: 9px; color: #666;">Signature</p>
+            <p style="margin: 0; color: #666; font-size: 9px;">Prepared by</p>
+            <p style="margin: 4px 0 0 0; font-weight: 600; font-size: 12px;">${selectedSection?.adviser}</p>
+            <p style="margin: 15px 0 0 0;">____________________</p>
+            <p style="margin: 4px 0 0 0; font-size: 8px; color: #666;">Signature</p>
           </div>
           <div style="text-align: right;">
-            <p style="margin: 0; font-size: 10px; color: #666;">Printed as of</p>
-            <p style="margin: 4px 0 0 0; font-size: 12px;">${new Date().toLocaleDateString('en-US', { 
+            <p style="margin: 0; font-size: 9px; color: #666;">Printed as of</p>
+            <p style="margin: 4px 0 0 0; font-size: 11px;">${new Date().toLocaleDateString('en-US', { 
               year: 'numeric', 
               month: 'long', 
               day: 'numeric',
@@ -1143,228 +1189,234 @@ export default function SchoolDashboard() {
     }, 250);
   };
 
-
   const handleDownloadStudentListPDF = async () => {
-  setDownloadingPDF(true);
-  try {
-    const maleStudents = sectionStudents.filter(s => s.gender === 'MALE');
-    const femaleStudents = sectionStudents.filter(s => s.gender === 'FEMALE');
+    setDownloadingPDF(true);
+    try {
+      const maleStudents = sectionStudents.filter(s => s.gender === 'MALE');
+      const femaleStudents = sectionStudents.filter(s => s.gender === 'FEMALE');
 
-    const pdfData = {
-      type: 'studentList',
-      schoolName: schoolData?.schoolName || '',
-      schoolId: schoolId,
-      address: schoolData?.address || '',
-      sectionName: selectedSection?.sectionName,
-      adviser: selectedSection?.adviser,
-      maleStudents: maleStudents.map((s, i) => ({
-        no: i + 1,
-        name: s.name,
-        mobile: s.mobileNumber,
-        status: s.status
-      })),
-      femaleStudents: femaleStudents.map((s, i) => ({
-        no: i + 1,
-        name: s.name,
-        mobile: s.mobileNumber,
-        status: s.status
-      })),
-      preparedBy: selectedSection?.adviser,
-      printedDate: new Date().toLocaleDateString('en-US', { 
-        year: 'numeric', 
-        month: 'long', 
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      })
-    };
+      const pdfData = {
+        type: 'studentList',
+        schoolName: schoolData?.schoolName || '',
+        schoolId: schoolId,
+        address: schoolData?.address || '',
+        sectionName: selectedSection?.sectionName,
+        adviser: selectedSection?.adviser,
+        maleStudents: maleStudents.map((s, i) => ({
+          no: i + 1,
+          name: s.name,
+          mobile: s.mobileNumber,
+          status: s.status
+        })),
+        femaleStudents: femaleStudents.map((s, i) => ({
+          no: i + 1,
+          name: s.name,
+          mobile: s.mobileNumber,
+          status: s.status
+        })),
+        preparedBy: selectedSection?.adviser,
+        printedDate: new Date().toLocaleDateString('en-US', { 
+          year: 'numeric', 
+          month: 'long', 
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        })
+      };
 
-    const response = await fetch('/api/generate-pdf', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(pdfData),
-    });
+      const response = await fetch('/api/generate-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(pdfData),
+      });
 
-    if (response.ok) {
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `StudentList_${selectedSection?.sectionName}_${new Date().toISOString().split('T')[0]}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } else {
-      alert('Failed to generate PDF');
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `StudentList_${selectedSection?.sectionName}_${new Date().toISOString().split('T')[0]}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      } else {
+        alert('Failed to generate PDF');
+      }
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      alert('Error generating PDF');
+    } finally {
+      setDownloadingPDF(false);
     }
-  } catch (error) {
-    console.error('Error generating PDF:', error);
-    alert('Error generating PDF');
-  } finally {
-    setDownloadingPDF(false);
-  }
-};
+  };
 
+  const handleDownloadAttendancePDF = async () => {
+    setDownloadingPDF(true);
+    try {
+      const isAllStudents = selectedStudent === 'all';
 
+      const pdfData = {
+        type: 'attendance',
+        schoolName: schoolData?.schoolName || '',
+        schoolId: schoolId,
+        address: schoolData?.address || '',
+        sectionName: selectedSection?.sectionName,
+        adviser: selectedSection?.adviser,
+        dateFrom: new Date(dateFrom).toLocaleDateString(),
+        dateTo: new Date(dateTo).toLocaleDateString(),
+        isAllStudents,
+        studentName: !isAllStudents ? sectionStudents.find(s => s.studentId === selectedStudent)?.name : null,
+        records: attendanceRecords.map((record, index) => ({
+          no: index + 1,
+          studentName: record.studentName,
+          date: new Date(record.date).toLocaleDateString('en-US', { 
+            month: 'short', 
+            day: 'numeric', 
+            year: 'numeric'
+          }),
+          amIn: record.amIn || '-',
+          amOut: record.amOut || '-',
+          pmIn: record.pmIn || '-',
+          pmOut: record.pmOut || '-'
+        })),
+        preparedBy: selectedSection?.adviser,
+        printedDate: new Date().toLocaleDateString('en-US', { 
+          year: 'numeric', 
+          month: 'long', 
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        })
+      };
 
+      const response = await fetch('/api/generate-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(pdfData),
+      });
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-const handleDownloadAttendancePDF = async () => {
-  setDownloadingPDF(true);
-  try {
-    const isAllStudents = selectedStudent === 'all';
-
-    const pdfData = {
-      type: 'attendance',
-      schoolName: schoolData?.schoolName || '',
-      schoolId: schoolId,
-      address: schoolData?.address || '',
-      sectionName: selectedSection?.sectionName,
-      adviser: selectedSection?.adviser,
-      dateFrom: new Date(dateFrom).toLocaleDateString(),
-      dateTo: new Date(dateTo).toLocaleDateString(),
-      isAllStudents,
-      studentName: !isAllStudents ? sectionStudents.find(s => s.studentId === selectedStudent)?.name : null,
-      records: attendanceRecords.map(record => ({
-        studentName: record.studentName,
-        date: new Date(record.date).toLocaleDateString('en-US', { 
-          month: 'short', 
-          day: 'numeric', 
-          year: 'numeric'
-        }),
-        amIn: record.amIn || '-',
-        amOut: record.amOut || '-',
-        pmIn: record.pmIn || '-',
-        pmOut: record.pmOut || '-'
-      })),
-      preparedBy: selectedSection?.adviser,
-      printedDate: new Date().toLocaleDateString('en-US', { 
-        year: 'numeric', 
-        month: 'long', 
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      })
-    };
-
-    const response = await fetch('/api/generate-pdf', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(pdfData),
-    });
-
-    if (response.ok) {
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `Attendance_${selectedSection?.sectionName}_${dateFrom}_to_${dateTo}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } else {
-      alert('Failed to generate PDF');
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Attendance_${selectedSection?.sectionName}_${dateFrom}_to_${dateTo}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      } else {
+        alert('Failed to generate PDF');
+      }
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      alert('Error generating PDF');
+    } finally {
+      setDownloadingPDF(false);
     }
-  } catch (error) {
-    console.error('Error generating PDF:', error);
-    alert('Error generating PDF');
-  } finally {
-    setDownloadingPDF(false);
-  }
-};
+  };
 
-const handleDownloadTopAttendeesPDF = async () => {
-  setDownloadingPDF(true);
-  try {
-    const topStudents = topAttendees.slice(0, topCount);
+  const handleDownloadTopAttendeesPDF = async () => {
+    setDownloadingPDF(true);
+    try {
+      const topStudents = topAttendees.slice(0, topCount);
 
-    const pdfData = {
-      type: 'topAttendees',
-      schoolName: schoolData?.schoolName || '',
-      schoolId: schoolId,
-      address: schoolData?.address || '',
-      sectionName: selectedSection?.sectionName,
-      adviser: selectedSection?.adviser,
-      topCount: topCount,
-      students: topStudents.map((student, index) => ({
-        rank: index + 1,
-        name: student.name,
-        attendanceCount: student.attendanceCount,
-        status: student.status
-      })),
-      preparedBy: selectedSection?.adviser,
-      printedDate: new Date().toLocaleDateString('en-US', { 
-        year: 'numeric', 
-        month: 'long', 
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      })
-    };
+      const pdfData = {
+        type: 'topAttendees',
+        schoolName: schoolData?.schoolName || '',
+        schoolId: schoolId,
+        address: schoolData?.address || '',
+        sectionName: selectedSection?.sectionName,
+        adviser: selectedSection?.adviser,
+        topCount: topCount,
+        students: topStudents.map((student, index) => ({
+          rank: index + 1,
+          name: student.name,
+          attendanceCount: student.attendanceCount,
+          status: student.status
+        })),
+        preparedBy: selectedSection?.adviser,
+        printedDate: new Date().toLocaleDateString('en-US', { 
+          year: 'numeric', 
+          month: 'long', 
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        })
+      };
 
-    const response = await fetch('/api/generate-pdf', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(pdfData),
-    });
+      const response = await fetch('/api/generate-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(pdfData),
+      });
 
-    if (response.ok) {
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `TopAttendees_${selectedSection?.sectionName}_Top${topCount}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } else {
-      alert('Failed to generate PDF');
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `TopAttendees_${selectedSection?.sectionName}_Top${topCount}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      } else {
+        alert('Failed to generate PDF');
+      }
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      alert('Error generating PDF');
+    } finally {
+      setDownloadingPDF(false);
     }
-  } catch (error) {
-    console.error('Error generating PDF:', error);
-    alert('Error generating PDF');
-  } finally {
-    setDownloadingPDF(false);
-  }
-};
+  };
 
+  // Calendar navigation functions
+  const goToPreviousMonth = () => {
+    setSelectedDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1));
+  };
 
+  const goToNextMonth = () => {
+    setSelectedDate(prev => new Date(prev.getFullYear(), prev.getMonth() + 1));
+  };
 
+  const goToToday = () => {
+    setSelectedDate(new Date());
+  };
 
+  // Generate calendar days
+  const generateCalendarDays = () => {
+    const year = selectedDate.getFullYear();
+    const month = selectedDate.getMonth();
+    
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const daysInMonth = lastDay.getDate();
+    const startingDayOfWeek = firstDay.getDay();
+    
+    const days = [];
+    
+    // Previous month days
+    for (let i = 0; i < startingDayOfWeek; i++) {
+      days.push({ day: null, isCurrentMonth: false });
+    }
+    
+    // Current month days
+    for (let i = 1; i <= daysInMonth; i++) {
+      days.push({ day: i, isCurrentMonth: true });
+    }
+    
+    return days;
+  };
 
-
-
-
-
-
-
-
-
-
-
-
-
+  const isToday = (day: number) => {
+    const today = new Date();
+    return day === today.getDate() &&
+           selectedDate.getMonth() === today.getMonth() &&
+           selectedDate.getFullYear() === today.getFullYear();
+  };
 
   if (loading) {
     return (
@@ -1428,7 +1480,7 @@ const handleDownloadTopAttendeesPDF = async () => {
         }
       `}</style>
 
-      {/* MOBILE HAMBURGER BUTTON - Hide when sidebar is open */}
+      {/* MOBILE HAMBURGER BUTTON */}
       {isMobile && sidebarCollapsed && (
         <button
           onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
@@ -1455,7 +1507,7 @@ const handleDownloadTopAttendeesPDF = async () => {
         </button>
       )}
 
-      {/* MOBILE OVERLAY - Show when sidebar is open on mobile */}
+      {/* MOBILE OVERLAY */}
       {isMobile && !sidebarCollapsed && (
         <div
           onClick={() => setSidebarCollapsed(true)}
@@ -1572,7 +1624,7 @@ const handleDownloadTopAttendeesPDF = async () => {
         </div>
 
         {/* Navigation */}
-        <div style={{ flex: 1, overflowY: 'hidden', padding: '12px 0' }}>
+        <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '12px 0' }}>
           
           {/* Dashboard */}
           <button
@@ -1661,9 +1713,141 @@ const handleDownloadTopAttendeesPDF = async () => {
             {!sidebarCollapsed && <span>Sections</span>}
           </button>
 
+          {/* CALENDAR */}
+          {!sidebarCollapsed && (
+            <div style={{ 
+              margin: '20px 12px', 
+              padding: '16px', 
+              backgroundColor: '#F9FAFB', 
+              borderRadius: '12px',
+              border: '1px solid #E5E7EB'
+            }}>
+              <div style={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                marginBottom: '12px'
+              }}>
+                <button
+                  onClick={goToPreviousMonth}
+                  style={{
+                    background: 'white',
+                    border: '1px solid #E5E7EB',
+                    borderRadius: '6px',
+                    width: '28px',
+                    height: '28px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    color: '#6B7280'
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+                
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: '#1F2937' }}>
+                    {selectedDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                  </div>
+                  <button
+                    onClick={goToToday}
+                    style={{
+                      fontSize: '10px',
+                      color: '#249E94',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: '2px 8px',
+                      marginTop: '2px',
+                      fontWeight: '500'
+                    }}
+                  >
+                    Today
+                  </button>
+                </div>
+                
+                <button
+                  onClick={goToNextMonth}
+                  style={{
+                    background: 'white',
+                    border: '1px solid #E5E7EB',
+                    borderRadius: '6px',
+                    width: '28px',
+                    height: '28px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    color: '#6B7280'
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              </div>
+              
+              <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: 'repeat(7, 1fr)', 
+                gap: '4px',
+                marginBottom: '8px'
+              }}>
+                {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(day => (
+                  <div key={day} style={{ 
+                    fontSize: '10px', 
+                    fontWeight: '600', 
+                    color: '#9CA3AF', 
+                    textAlign: 'center',
+                    padding: '4px 0'
+                  }}>
+                    {day}
+                  </div>
+                ))}
+              </div>
+              
+              <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: 'repeat(7, 1fr)', 
+                gap: '4px'
+              }}>
+                {generateCalendarDays().map((dayObj, index) => (
+                  <div
+                    key={index}
+                    style={{
+                      padding: '6px',
+                      textAlign: 'center',
+                      fontSize: '12px',
+                      fontWeight: dayObj.day && isToday(dayObj.day) ? '700' : '500',
+                      color: dayObj.isCurrentMonth ? (dayObj.day && isToday(dayObj.day) ? '#FFFFFF' : '#1F2937') : '#D1D5DB',
+                      backgroundColor: dayObj.day && isToday(dayObj.day) ? '#249E94' : 'transparent',
+                      borderRadius: '6px',
+                      cursor: dayObj.day ? 'pointer' : 'default',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (dayObj.day && !isToday(dayObj.day)) {
+                        e.currentTarget.style.backgroundColor = '#FFFFFF';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (dayObj.day && !isToday(dayObj.day)) {
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                      }
+                    }}
+                  >
+                    {dayObj.day || ''}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* PROFILE BUTTON AT BOTTOM OF SIDEBAR */}
+        {/* PROFILE BUTTON AT BOTTOM */}
         <div style={{ 
           borderTop: '1px solid #E5E7EB', 
           padding: '12px',
@@ -1727,7 +1911,7 @@ const handleDownloadTopAttendeesPDF = async () => {
             )}
           </button>
 
-          {/* DROPDOWN SETTINGS MENU FROM SIDEBAR */}
+          {/* DROPDOWN SETTINGS MENU */}
           {showSettings && (
             <div style={{
               position: 'fixed',
@@ -1757,7 +1941,7 @@ const handleDownloadTopAttendeesPDF = async () => {
                 }
               `}</style>
 
-              {/* School Header - Simple White/Black */}
+              {/* School Header */}
               <div style={{
                 padding: '24px',
                 borderBottom: '1px solid #E5E7EB',
@@ -1929,86 +2113,197 @@ const handleDownloadTopAttendeesPDF = async () => {
         transition: 'margin-left 0.3s ease',
         minHeight: '100vh',
         position: 'relative',
-        padding: isMobile ? '20px' : '32px',
+        padding: isMobile ? '16px' : '32px',
         paddingTop: isMobile ? '70px' : '32px'
       }}>
         
         {activeView === 'dashboard' && (
-          <div>
-            <h1 style={{ fontSize: '28px', fontWeight: '700', color: '#212529', margin: '0 0 8px 0' }}>
-              Dashboard
-            </h1>
-            <p style={{ fontSize: '14px', color: '#6C757D', margin: '0 0 32px 0' }}>
-              Overview of your school statistics
-            </p>
+  <div>
+    <h1 style={{ fontSize: isMobile ? '24px' : '28px', fontWeight: '700', color: '#212529', margin: '0 0 8px 0' }}>
+      Dashboard
+    </h1>
+    <p style={{ fontSize: '14px', color: '#6C757D', margin: '0 0 32px 0' }}>
+      Overview of your school statistics
+    </p>
 
-            {/* Stats */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px', marginBottom: '32px' }}>
-              <div style={{ 
-                backgroundColor: 'white', 
-                borderRadius: '12px',
-                padding: '24px',
-                border: '1px solid #E9ECEF',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                  <div style={{
-                    width: '48px',
-                    height: '48px',
-                    borderRadius: '12px',
-                    backgroundColor: 'rgba(36, 158, 148, 0.1)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}>
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#249E94">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                    </svg>
-                  </div>
-                  <div>
-                    <p style={{ fontSize: '13px', color: '#6C757D', margin: 0, fontWeight: '500' }}>Total Sections</p>
-                    <p style={{ fontSize: '32px', fontWeight: '700', color: '#249E94', margin: '4px 0 0 0', lineHeight: 1 }}>{sections.length}</p>
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ 
-                backgroundColor: 'white', 
-                borderRadius: '12px',
-                padding: '24px',
-                border: '1px solid #E9ECEF',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                  <div style={{
-                    width: '48px',
-                    height: '48px',
-                    borderRadius: '12px',
-                    backgroundColor: 'rgba(52, 152, 219, 0.1)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}>
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3498DB">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-                    </svg>
-                  </div>
-                  <div>
-                    <p style={{ fontSize: '13px', color: '#6C757D', margin: 0, fontWeight: '500' }}>Total Students</p>
-                    <p style={{ fontSize: '32px', fontWeight: '700', color: '#3498DB', margin: '4px 0 0 0', lineHeight: 1 }}>{totalStudents}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
+    {/* SECTIONS OVER TIME CHART */}
+    <div style={{ 
+      backgroundColor: 'white', 
+      borderRadius: '12px',
+      padding: '24px',
+      border: '1px solid #E9ECEF',
+      boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+      marginBottom: '20px'
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <div>
+          <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#6C757D', margin: 0, marginBottom: '4px' }}>
+            Total Sections
+          </h3>
+          <p style={{ fontSize: '32px', fontWeight: '700', color: '#249E94', margin: 0, lineHeight: 1 }}>
+            {sections.length}
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: '16px', fontSize: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ width: '12px', height: '12px', borderRadius: '2px', backgroundColor: '#249E94' }}></div>
+            <span style={{ color: '#6C757D' }}>Sections</span>
           </div>
-        )}
+        </div>
+      </div>
+      <ResponsiveContainer width="100%" height={200}>
+        <LineChart data={Array.from({ length: 7 }, (_, i) => ({
+          day: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][i],
+          sections: sections.length
+        }))}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#E9ECEF" />
+          <XAxis dataKey="day" stroke="#6C757D" style={{ fontSize: '11px' }} />
+          <YAxis stroke="#6C757D" style={{ fontSize: '11px' }} />
+          <Tooltip 
+            contentStyle={{ 
+              backgroundColor: 'white', 
+              border: '1px solid #E9ECEF', 
+              borderRadius: '8px',
+              fontSize: '12px'
+            }}
+          />
+          <Line 
+            type="monotone" 
+            dataKey="sections" 
+            stroke="#249E94" 
+            strokeWidth={2}
+            dot={{ fill: '#249E94', r: 4 }}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+
+    {/* TOTAL STUDENTS CHART */}
+    <div style={{ 
+      backgroundColor: 'white', 
+      borderRadius: '12px',
+      padding: '24px',
+      border: '1px solid #E9ECEF',
+      boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+      marginBottom: '20px'
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <div>
+          <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#6C757D', margin: 0, marginBottom: '4px' }}>
+            Total Students
+          </h3>
+          <p style={{ fontSize: '32px', fontWeight: '700', color: '#3498DB', margin: 0, lineHeight: 1 }}>
+            {totalStudents}
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: '16px', fontSize: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ width: '12px', height: '12px', borderRadius: '2px', backgroundColor: '#3498DB' }}></div>
+            <span style={{ color: '#6C757D' }}>Students</span>
+          </div>
+        </div>
+      </div>
+      <ResponsiveContainer width="100%" height={200}>
+        <LineChart data={Array.from({ length: 7 }, (_, i) => ({
+          day: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][i],
+          students: totalStudents
+        }))}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#E9ECEF" />
+          <XAxis dataKey="day" stroke="#6C757D" style={{ fontSize: '11px' }} />
+          <YAxis stroke="#6C757D" style={{ fontSize: '11px' }} />
+          <Tooltip 
+            contentStyle={{ 
+              backgroundColor: 'white', 
+              border: '1px solid #E9ECEF', 
+              borderRadius: '8px',
+              fontSize: '12px'
+            }}
+          />
+          <Line 
+            type="monotone" 
+            dataKey="students" 
+            stroke="#3498DB" 
+            strokeWidth={2}
+            dot={{ fill: '#3498DB', r: 4 }}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+
+    {/* TODAY'S SCANS CHART */}
+    <div style={{ 
+      backgroundColor: 'white', 
+      borderRadius: '12px',
+      padding: '24px',
+      border: '1px solid #E9ECEF',
+      boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+      marginBottom: '20px'
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <div>
+          <h3 style={{ fontSize: '14px', fontWeight: '600', color: '#6C757D', margin: 0, marginBottom: '4px' }}>
+            Today's Attendance Scans
+          </h3>
+          <p style={{ fontSize: '32px', fontWeight: '700', color: '#9B59B6', margin: 0, lineHeight: 1 }}>
+            {totalScansToday}
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: '16px', fontSize: '12px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ width: '12px', height: '12px', borderRadius: '2px', backgroundColor: '#2ECC71' }}></div>
+            <span style={{ color: '#6C757D' }}>AM IN ({todayScans.amIn})</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ width: '12px', height: '12px', borderRadius: '2px', backgroundColor: '#E74C3C' }}></div>
+            <span style={{ color: '#6C757D' }}>AM OUT ({todayScans.amOut})</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ width: '12px', height: '12px', borderRadius: '2px', backgroundColor: '#F39C12' }}></div>
+            <span style={{ color: '#6C757D' }}>PM IN ({todayScans.pmIn})</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ width: '12px', height: '12px', borderRadius: '2px', backgroundColor: '#E67E22' }}></div>
+            <span style={{ color: '#6C757D' }}>PM OUT ({todayScans.pmOut})</span>
+          </div>
+        </div>
+      </div>
+      <ResponsiveContainer width="100%" height={250}>
+        <LineChart data={[
+          { time: '6 AM', amIn: todayScans.amIn, amOut: 0, pmIn: 0, pmOut: 0 },
+          { time: '8 AM', amIn: todayScans.amIn, amOut: 0, pmIn: 0, pmOut: 0 },
+          { time: '10 AM', amIn: todayScans.amIn, amOut: todayScans.amOut, pmIn: 0, pmOut: 0 },
+          { time: '12 PM', amIn: todayScans.amIn, amOut: todayScans.amOut, pmIn: 0, pmOut: 0 },
+          { time: '2 PM', amIn: todayScans.amIn, amOut: todayScans.amOut, pmIn: todayScans.pmIn, pmOut: 0 },
+          { time: '4 PM', amIn: todayScans.amIn, amOut: todayScans.amOut, pmIn: todayScans.pmIn, pmOut: todayScans.pmOut },
+          { time: '6 PM', amIn: todayScans.amIn, amOut: todayScans.amOut, pmIn: todayScans.pmIn, pmOut: todayScans.pmOut }
+        ]}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#E9ECEF" />
+          <XAxis dataKey="time" stroke="#6C757D" style={{ fontSize: '11px' }} />
+          <YAxis stroke="#6C757D" style={{ fontSize: '11px' }} />
+          <Tooltip 
+            contentStyle={{ 
+              backgroundColor: 'white', 
+              border: '1px solid #E9ECEF', 
+              borderRadius: '8px',
+              fontSize: '12px'
+            }}
+          />
+          <Line type="monotone" dataKey="amIn" stroke="#2ECC71" strokeWidth={2} name="AM IN" />
+          <Line type="monotone" dataKey="amOut" stroke="#E74C3C" strokeWidth={2} name="AM OUT" />
+          <Line type="monotone" dataKey="pmIn" stroke="#F39C12" strokeWidth={2} name="PM IN" />
+          <Line type="monotone" dataKey="pmOut" stroke="#E67E22" strokeWidth={2} name="PM OUT" />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  </div>
+)}
 
         {activeView === 'sections' && (
           <div>
-            <h1 style={{ fontSize: '28px', fontWeight: '700', color: '#212529', margin: '0 0 8px 0' }}>
+            <h1 style={{ fontSize: isMobile ? '24px' : '28px', fontWeight: '700', color: '#212529', margin: '0 0 8px 0' }}>
               Sections
             </h1>
-            <p style={{ fontSize: '14px', color: '#6C757D', margin: '0 0 32px 0' }}>
+            <p style={{ fontSize: '14px', color: '#6C757D', margin: '0 0 24px 0' }}>
               Manage and view all sections
             </p>
 
@@ -2020,7 +2315,7 @@ const handleDownloadTopAttendeesPDF = async () => {
                   style={{ 
                     backgroundColor: 'white',
                     borderRadius: '12px',
-                    padding: '16px 24px',
+                    padding: '16px 20px',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '16px',
@@ -2102,53 +2397,53 @@ const handleDownloadTopAttendeesPDF = async () => {
                         <div
                           key={section.id}
                           style={{
-                            padding: '20px',
+                            padding: '16px',
                             borderBottom: '1px solid #F8F9FA'
                           }}
                         >
-                          <div style={{ marginBottom: '16px' }}>
+                          <div style={{ marginBottom: '14px' }}>
                             <div 
                               onClick={() => !isUnlocked && handleSectionClick(section)}
                               style={{ 
-                                fontSize: '16px', 
+                                fontSize: '15px', 
                                 color: '#212529', 
                                 fontWeight: '600',
                                 cursor: isUnlocked ? 'default' : 'pointer',
                                 display: 'flex',
                                 alignItems: 'center',
-                                gap: '10px',
+                                gap: '8px',
                                 marginBottom: '8px'
                               }}
                             >
                               {section.sectionName}
                               {!isUnlocked && (
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#DC2626" strokeWidth="2.5">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#DC2626" strokeWidth="2.5">
                                   <rect x="5" y="11" width="14" height="10" rx="2" strokeLinecap="round" strokeLinejoin="round"/>
                                   <path d="M8 11V7C8 4.79086 9.79086 3 12 3C14.2091 3 16 4.79086 16 7V11" strokeLinecap="round" strokeLinejoin="round"/>
                                 </svg>
                               )}
                             </div>
-                            <div style={{ fontSize: '13px', color: '#6C757D', marginBottom: '4px' }}>
+                            <div style={{ fontSize: '12px', color: '#6C757D', marginBottom: '4px' }}>
                               <strong>Adviser:</strong> {section.adviser || 'No adviser'}
                             </div>
-                            <div style={{ fontSize: '13px', color: '#6C757D' }}>
+                            <div style={{ fontSize: '12px', color: '#6C757D' }}>
                               <strong>Students:</strong> <span style={{ color: '#249E94', fontWeight: '600' }}>{studentCounts[section.sectionId] || 0}</span>
                             </div>
                           </div>
                           
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                             <button
                               onClick={() => handleActionClick(section, 'studentList')}
                               disabled={!isUnlocked}
                               style={{
                                 width: '100%',
-                                padding: '10px',
+                                padding: '9px',
                                 backgroundColor: isUnlocked ? '#249E94' : '#E9ECEF',
                                 color: isUnlocked ? 'white' : '#ADB5BD',
                                 border: 'none',
                                 borderRadius: '8px',
                                 cursor: isUnlocked ? 'pointer' : 'not-allowed',
-                                fontSize: '13px',
+                                fontSize: '12px',
                                 fontWeight: '600'
                               }}
                             >
@@ -2159,13 +2454,13 @@ const handleDownloadTopAttendeesPDF = async () => {
                               disabled={!isUnlocked}
                               style={{
                                 width: '100%',
-                                padding: '10px',
+                                padding: '9px',
                                 backgroundColor: isUnlocked ? '#249E94' : '#E9ECEF',
                                 color: isUnlocked ? 'white' : '#ADB5BD',
                                 border: 'none',
                                 borderRadius: '8px',
                                 cursor: isUnlocked ? 'pointer' : 'not-allowed',
-                                fontSize: '13px',
+                                fontSize: '12px',
                                 fontWeight: '600'
                               }}
                             >
@@ -2176,13 +2471,13 @@ const handleDownloadTopAttendeesPDF = async () => {
                               disabled={!isUnlocked}
                               style={{
                                 width: '100%',
-                                padding: '10px',
+                                padding: '9px',
                                 backgroundColor: isUnlocked ? '#249E94' : '#E9ECEF',
                                 color: isUnlocked ? 'white' : '#ADB5BD',
                                 border: 'none',
                                 borderRadius: '8px',
                                 cursor: isUnlocked ? 'pointer' : 'not-allowed',
-                                fontSize: '13px',
+                                fontSize: '12px',
                                 fontWeight: '600'
                               }}
                             >
@@ -2193,13 +2488,13 @@ const handleDownloadTopAttendeesPDF = async () => {
                               disabled={!isUnlocked}
                               style={{
                                 width: '100%',
-                                padding: '10px',
+                                padding: '9px',
                                 backgroundColor: isUnlocked ? '#249E94' : '#E9ECEF',
                                 color: isUnlocked ? 'white' : '#ADB5BD',
                                 border: 'none',
                                 borderRadius: '8px',
                                 cursor: isUnlocked ? 'pointer' : 'not-allowed',
-                                fontSize: '13px',
+                                fontSize: '12px',
                                 fontWeight: '600'
                               }}
                             >
@@ -2222,7 +2517,7 @@ const handleDownloadTopAttendeesPDF = async () => {
                           onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#FAFBFC'}
                           onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
                         >
-                          {/* Section Name - Clickable to unlock */}
+                          {/* Section Name */}
                           <div 
                             onClick={() => !isUnlocked && handleSectionClick(section)}
                             style={{ 
@@ -2254,18 +2549,18 @@ const handleDownloadTopAttendeesPDF = async () => {
                             {studentCounts[section.sectionId] || 0}
                           </div>
                           
-                          {/* CLEAN INLINE BUTTONS */}
-                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'flex-start' }}>
+                          {/* ACTIONS */}
+                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'flex-start', flexWrap: 'wrap' }}>
                             <button
                               onClick={() => handleActionClick(section, 'studentList')}
                               disabled={!isUnlocked}
                               style={{
-                                padding: '8px 14px',
+                                padding: '7px 12px',
                                 backgroundColor: isUnlocked ? 'white' : '#F8F9FA',
                                 border: '1px solid #DEE2E6',
                                 borderRadius: '8px',
                                 cursor: isUnlocked ? 'pointer' : 'not-allowed',
-                                fontSize: '13px',
+                                fontSize: '12px',
                                 color: isUnlocked ? '#495057' : '#ADB5BD',
                                 fontWeight: '500',
                                 transition: 'all 0.2s ease',
@@ -2298,12 +2593,12 @@ const handleDownloadTopAttendeesPDF = async () => {
                               onClick={() => handleActionClick(section, 'attendance')}
                               disabled={!isUnlocked}
                               style={{
-                                padding: '8px 14px',
+                                padding: '7px 12px',
                                 backgroundColor: isUnlocked ? 'white' : '#F8F9FA',
                                 border: '1px solid #DEE2E6',
                                 borderRadius: '8px',
                                 cursor: isUnlocked ? 'pointer' : 'not-allowed',
-                                fontSize: '13px',
+                                fontSize: '12px',
                                 color: isUnlocked ? '#495057' : '#ADB5BD',
                                 fontWeight: '500',
                                 transition: 'all 0.2s ease',
@@ -2336,12 +2631,12 @@ const handleDownloadTopAttendeesPDF = async () => {
                               onClick={() => handleActionClick(section, 'topAttendees')}
                               disabled={!isUnlocked}
                               style={{
-                                padding: '8px 14px',
+                                padding: '7px 12px',
                                 backgroundColor: isUnlocked ? 'white' : '#F8F9FA',
                                 border: '1px solid #DEE2E6',
                                 borderRadius: '8px',
                                 cursor: isUnlocked ? 'pointer' : 'not-allowed',
-                                fontSize: '13px',
+                                fontSize: '12px',
                                 color: isUnlocked ? '#495057' : '#ADB5BD',
                                 fontWeight: '500',
                                 transition: 'all 0.2s ease',
@@ -2374,12 +2669,12 @@ const handleDownloadTopAttendeesPDF = async () => {
                               onClick={() => handleOpenSF2(section)}
                               disabled={!isUnlocked}
                               style={{
-                                padding: '8px 14px',
+                                padding: '7px 12px',
                                 backgroundColor: isUnlocked ? 'white' : '#F8F9FA',
                                 border: '1px solid #DEE2E6',
                                 borderRadius: '8px',
                                 cursor: isUnlocked ? 'pointer' : 'not-allowed',
-                                fontSize: '13px',
+                                fontSize: '12px',
                                 color: isUnlocked ? '#495057' : '#ADB5BD',
                                 fontWeight: '500',
                                 transition: 'all 0.2s ease',
@@ -2449,7 +2744,8 @@ const handleDownloadTopAttendeesPDF = async () => {
               width: '100%',
               boxShadow: '0 10px 40px rgba(0,0,0,0.12)',
               padding: '40px 32px',
-              textAlign: 'center'
+              textAlign: 'center',
+              position: 'relative'
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -2531,8 +2827,8 @@ const handleDownloadTopAttendeesPDF = async () => {
                   }}
                   autoFocus={index === 0}
                   style={{
-                    width: '56px',
-                    height: '56px',
+                    width: isMobile ? '44px' : '56px',
+                    height: isMobile ? '44px' : '56px',
                     border: `2px solid ${pinInput[index] ? '#249E94' : '#E9ECEF'}`,
                     borderRadius: '12px',
                     fontSize: '24px',
@@ -2765,6 +3061,7 @@ const handleDownloadTopAttendeesPDF = async () => {
         </div>
       )}
 
+      {/* STUDENT LIST MODAL - Will continue in next part */}
       {/* STUDENT LIST MODAL */}
       {showStudentListModal && (
         <div>
@@ -2801,57 +3098,53 @@ const handleDownloadTopAttendeesPDF = async () => {
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ 
-              padding: '16px 24px', 
+              padding: '14px 20px', 
               borderBottom: '1px solid #E9ECEF',
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center'
             }} className="no-print">
               <div>
-                <h2 style={{ fontSize: '17px', fontWeight: '600', color: '#212529', margin: 0, marginBottom: '2px' }}>
+                <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#212529', margin: 0, marginBottom: '2px' }}>
                   {selectedSection?.sectionName}
                 </h2>
-                <p style={{ fontSize: '12px', color: '#6C757D', margin: 0 }}>
+                <p style={{ fontSize: '11px', color: '#6C757D', margin: 0 }}>
                   {selectedSection?.adviser}
                 </p>
               </div>
-              <div style={{ display: 'flex', gap: '10px' }}>
-
-<button
-  onClick={handleDownloadStudentListPDF}
-  disabled={downloadingPDF}
-  style={{
-    padding: '7px 14px',
-    backgroundColor: downloadingPDF ? '#9BC5BF' : '#17A2B8',
-    color: 'white',
-    border: 'none',
-    borderRadius: '6px',
-    cursor: downloadingPDF ? 'not-allowed' : 'pointer',
-    fontSize: '13px',
-    fontWeight: '500',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px'
-  }}
->
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-  </svg>
-  {downloadingPDF ? 'Downloading...' : 'Download PDF'}
-</button>
-              
-
-
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button
+                  onClick={handleDownloadStudentListPDF}
+                  disabled={downloadingPDF}
+                  style={{
+                    padding: '6px 12px',
+                    backgroundColor: downloadingPDF ? '#9BC5BF' : '#17A2B8',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: downloadingPDF ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    fontWeight: '500',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  {downloadingPDF ? 'Downloading...' : 'PDF'}
+                </button>
                 <button
                   onClick={handlePrintStudentList}
                   style={{
-                    padding: '7px 14px',
+                    padding: '6px 12px',
                     backgroundColor: '#249E94',
                     color: 'white',
                     border: 'none',
                     borderRadius: '6px',
                     cursor: 'pointer',
-                    fontSize: '13px',
+                    fontSize: '12px',
                     fontWeight: '500'
                   }}
                 >
@@ -2865,7 +3158,7 @@ const handleDownloadTopAttendeesPDF = async () => {
                     border: 'none',
                     borderRadius: '6px',
                     cursor: 'pointer',
-                    fontSize: '18px',
+                    fontSize: '16px',
                     color: '#6C757D',
                     lineHeight: 1
                   }}
@@ -2875,147 +3168,147 @@ const handleDownloadTopAttendeesPDF = async () => {
               </div>
             </div>
 
-            <div className="modal-content" style={{ flex: 1, overflow: 'auto', padding: '24px' }}>
-              <div style={{ textAlign: 'center', marginBottom: '28px' }}>
-                <h1 style={{ fontSize: '20px', fontWeight: '600', color: '#212529', margin: 0, marginBottom: '2px' }}>
+            <div className="modal-content" style={{ flex: 1, overflow: 'auto', padding: '20px' }}>
+              <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+                <h1 style={{ fontSize: '18px', fontWeight: '600', color: '#212529', margin: 0, marginBottom: '2px' }}>
                   {schoolData?.schoolName}
                 </h1>
-                <p style={{ fontSize: '12px', color: '#6C757D', margin: 0 }}>School ID: {schoolId}</p>
-                <p style={{ fontSize: '12px', color: '#6C757D', margin: '2px 0 12px 0' }}>{schoolData?.address}</p>
+                <p style={{ fontSize: '11px', color: '#6C757D', margin: 0 }}>School ID: {schoolId}</p>
+                <p style={{ fontSize: '11px', color: '#6C757D', margin: '2px 0 10px 0' }}>{schoolData?.address}</p>
                 
                 <div style={{ 
                   display: 'inline-block',
                   backgroundColor: '#F8F9FA',
-                  padding: '8px 20px',
+                  padding: '6px 16px',
                   borderRadius: '6px',
-                  marginTop: '6px'
+                  marginTop: '4px'
                 }}>
-                  <p style={{ fontSize: '14px', fontWeight: '600', color: '#212529', margin: 0 }}>STUDENT LIST</p>
+                  <p style={{ fontSize: '12px', fontWeight: '600', color: '#212529', margin: 0 }}>STUDENT LIST</p>
                 </div>
               </div>
 
-                {maleStudents.length > 0 && (
-                  <div style={{ marginBottom: '28px' }}>
-                    <div style={{ 
-                      fontSize: '14px', 
-                      fontWeight: '600', 
-                      color: '#212529', 
-                      marginBottom: '12px',
-                      paddingBottom: '8px',
-                      borderBottom: '2px solid #249E94'
-                    }}>
-                      MALE ({maleStudents.length})
-                    </div>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
-                      <thead>
-                        <tr style={{ backgroundColor: '#F8F9FA' }}>
-                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#6C757D', fontSize: '12px', borderBottom: '1px solid #DEE2E6' }}>NO.</th>
-                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#6C757D', fontSize: '12px', borderBottom: '1px solid #DEE2E6' }}>NAME</th>
-                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#6C757D', fontSize: '12px', borderBottom: '1px solid #DEE2E6' }}>MOBILE</th>
-                          <th style={{ padding: '12px', textAlign: 'center', fontWeight: '600', color: '#6C757D', fontSize: '12px', borderBottom: '1px solid #DEE2E6' }}>STATUS</th>
+              {maleStudents.length > 0 && (
+                <div style={{ marginBottom: '24px' }}>
+                  <div style={{ 
+                    fontSize: '13px', 
+                    fontWeight: '600', 
+                    color: '#212529', 
+                    marginBottom: '10px',
+                    paddingBottom: '6px',
+                    borderBottom: '2px solid #249E94'
+                  }}>
+                    MALE ({maleStudents.length})
+                  </div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#F8F9FA' }}>
+                        <th style={{ padding: '8px', textAlign: 'left', fontWeight: '600', color: '#6C757D', fontSize: '11px', borderBottom: '1px solid #DEE2E6', width: '40px' }}>NO.</th>
+                        <th style={{ padding: '8px', textAlign: 'left', fontWeight: '600', color: '#6C757D', fontSize: '11px', borderBottom: '1px solid #DEE2E6' }}>NAME</th>
+                        <th style={{ padding: '8px', textAlign: 'left', fontWeight: '600', color: '#6C757D', fontSize: '11px', borderBottom: '1px solid #DEE2E6' }}>MOBILE</th>
+                        <th style={{ padding: '8px', textAlign: 'center', fontWeight: '600', color: '#6C757D', fontSize: '11px', borderBottom: '1px solid #DEE2E6', width: '80px' }}>STATUS</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {maleStudents.map((student, index) => (
+                        <tr key={student.id}>
+                          <td style={{ padding: '8px', color: '#6C757D', borderBottom: '1px solid #F8F9FA' }}>{index + 1}</td>
+                          <td style={{ padding: '8px', fontWeight: '500', color: '#212529', borderBottom: '1px solid #F8F9FA' }}>{student.name}</td>
+                          <td style={{ padding: '8px', color: '#6C757D', borderBottom: '1px solid #F8F9FA' }}>{student.mobileNumber}</td>
+                          <td style={{ padding: '8px', textAlign: 'center', borderBottom: '1px solid #F8F9FA' }}>
+                            <span style={{ 
+                              backgroundColor: student.status === 'ACTIVE' ? '#D4EDDA' : '#F8D7DA',
+                              color: student.status === 'ACTIVE' ? '#155724' : '#721C24',
+                              padding: '3px 10px',
+                              borderRadius: '10px',
+                              fontSize: '10px',
+                              fontWeight: '600'
+                            }}>
+                              {student.status}
+                            </span>
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody>
-                        {maleStudents.map((student, index) => (
-                          <tr key={student.id}>
-                            <td style={{ padding: '12px', color: '#6C757D', borderBottom: '1px solid #F8F9FA' }}>{index + 1}</td>
-                            <td style={{ padding: '12px', fontWeight: '500', color: '#212529', borderBottom: '1px solid #F8F9FA' }}>{student.name}</td>
-                            <td style={{ padding: '12px', color: '#6C757D', borderBottom: '1px solid #F8F9FA' }}>{student.mobileNumber}</td>
-                            <td style={{ padding: '12px', textAlign: 'center', borderBottom: '1px solid #F8F9FA' }}>
-                              <span style={{ 
-                                backgroundColor: student.status === 'ACTIVE' ? '#D4EDDA' : '#F8D7DA',
-                                color: student.status === 'ACTIVE' ? '#155724' : '#721C24',
-                                padding: '4px 12px',
-                                borderRadius: '12px',
-                                fontSize: '11px',
-                                fontWeight: '600'
-                              }}>
-                                {student.status}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
 
-                {femaleStudents.length > 0 && (
-                  <div style={{ marginBottom: '28px' }}>
-                    <div style={{ 
-                      fontSize: '14px', 
-                      fontWeight: '600', 
-                      color: '#212529', 
-                      marginBottom: '12px',
-                      paddingBottom: '8px',
-                      borderBottom: '2px solid #249E94'
-                    }}>
-                      FEMALE ({femaleStudents.length})
-                    </div>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
-                      <thead>
-                        <tr style={{ backgroundColor: '#F8F9FA' }}>
-                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#6C757D', fontSize: '12px', borderBottom: '1px solid #DEE2E6' }}>NO.</th>
-                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#6C757D', fontSize: '12px', borderBottom: '1px solid #DEE2E6' }}>NAME</th>
-                          <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#6C757D', fontSize: '12px', borderBottom: '1px solid #DEE2E6' }}>MOBILE</th>
-                          <th style={{ padding: '12px', textAlign: 'center', fontWeight: '600', color: '#6C757D', fontSize: '12px', borderBottom: '1px solid #DEE2E6' }}>STATUS</th>
+              {femaleStudents.length > 0 && (
+                <div style={{ marginBottom: '24px' }}>
+                  <div style={{ 
+                    fontSize: '13px', 
+                    fontWeight: '600', 
+                    color: '#212529', 
+                    marginBottom: '10px',
+                    paddingBottom: '6px',
+                    borderBottom: '2px solid #249E94'
+                  }}>
+                    FEMALE ({femaleStudents.length})
+                  </div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#F8F9FA' }}>
+                        <th style={{ padding: '8px', textAlign: 'left', fontWeight: '600', color: '#6C757D', fontSize: '11px', borderBottom: '1px solid #DEE2E6', width: '40px' }}>NO.</th>
+                        <th style={{ padding: '8px', textAlign: 'left', fontWeight: '600', color: '#6C757D', fontSize: '11px', borderBottom: '1px solid #DEE2E6' }}>NAME</th>
+                        <th style={{ padding: '8px', textAlign: 'left', fontWeight: '600', color: '#6C757D', fontSize: '11px', borderBottom: '1px solid #DEE2E6' }}>MOBILE</th>
+                        <th style={{ padding: '8px', textAlign: 'center', fontWeight: '600', color: '#6C757D', fontSize: '11px', borderBottom: '1px solid #DEE2E6', width: '80px' }}>STATUS</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {femaleStudents.map((student, index) => (
+                        <tr key={student.id}>
+                          <td style={{ padding: '8px', color: '#6C757D', borderBottom: '1px solid #F8F9FA' }}>{index + 1}</td>
+                          <td style={{ padding: '8px', fontWeight: '500', color: '#212529', borderBottom: '1px solid #F8F9FA' }}>{student.name}</td>
+                          <td style={{ padding: '8px', color: '#6C757D', borderBottom: '1px solid #F8F9FA' }}>{student.mobileNumber}</td>
+                          <td style={{ padding: '8px', textAlign: 'center', borderBottom: '1px solid #F8F9FA' }}>
+                            <span style={{ 
+                              backgroundColor: student.status === 'ACTIVE' ? '#D4EDDA' : '#F8D7DA',
+                              color: student.status === 'ACTIVE' ? '#155724' : '#721C24',
+                              padding: '3px 10px',
+                              borderRadius: '10px',
+                              fontSize: '10px',
+                              fontWeight: '600'
+                            }}>
+                              {student.status}
+                            </span>
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody>
-                        {femaleStudents.map((student, index) => (
-                          <tr key={student.id}>
-                            <td style={{ padding: '12px', color: '#6C757D', borderBottom: '1px solid #F8F9FA' }}>{index + 1}</td>
-                            <td style={{ padding: '12px', fontWeight: '500', color: '#212529', borderBottom: '1px solid #F8F9FA' }}>{student.name}</td>
-                            <td style={{ padding: '12px', color: '#6C757D', borderBottom: '1px solid #F8F9FA' }}>{student.mobileNumber}</td>
-                            <td style={{ padding: '12px', textAlign: 'center', borderBottom: '1px solid #F8F9FA' }}>
-                              <span style={{ 
-                                backgroundColor: student.status === 'ACTIVE' ? '#D4EDDA' : '#F8D7DA',
-                                color: student.status === 'ACTIVE' ? '#155724' : '#721C24',
-                                padding: '4px 12px',
-                                borderRadius: '12px',
-                                fontSize: '11px',
-                                fontWeight: '600'
-                              }}>
-                                {student.status}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
 
-                <div style={{ 
-                  marginTop: '40px', 
-                  paddingTop: '24px',
-                  borderTop: '1px solid #DEE2E6',
-                  display: 'flex', 
-                  justifyContent: 'space-between', 
-                  fontSize: '13px'
-                }}>
-                  <div>
-                    <p style={{ margin: 0, color: '#ADB5BD', fontSize: '11px' }}>Prepared by</p>
-                    <p style={{ margin: '4px 0 0 0', fontWeight: '600', color: '#212529', fontSize: '15px' }}>{selectedSection?.adviser}</p>
-                    <p style={{ margin: '20px 0 0 0', color: '#DEE2E6' }}>____________________</p>
-                    <p style={{ margin: '4px 0 0 0', fontSize: '10px', color: '#ADB5BD' }}>Signature</p>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <p style={{ margin: 0, fontSize: '11px', color: '#ADB5BD' }}>Printed as of</p>
-                    <p style={{ margin: '4px 0 0 0', fontWeight: '500', color: '#212529' }}>
-                      {new Date().toLocaleDateString('en-US', { 
-                        year: 'numeric', 
-                        month: 'long', 
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
-                    </p>
-                  </div>
+              <div style={{ 
+                marginTop: '30px', 
+                paddingTop: '20px',
+                borderTop: '1px solid #DEE2E6',
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                fontSize: '11px'
+              }}>
+                <div>
+                  <p style={{ margin: 0, color: '#ADB5BD', fontSize: '10px' }}>Prepared by</p>
+                  <p style={{ margin: '4px 0 0 0', fontWeight: '600', color: '#212529', fontSize: '13px' }}>{selectedSection?.adviser}</p>
+                  <p style={{ margin: '15px 0 0 0', color: '#DEE2E6' }}>____________________</p>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '9px', color: '#ADB5BD' }}>Signature</p>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <p style={{ margin: 0, fontSize: '10px', color: '#ADB5BD' }}>Printed as of</p>
+                  <p style={{ margin: '4px 0 0 0', fontWeight: '500', color: '#212529', fontSize: '11px' }}>
+                    {new Date().toLocaleDateString('en-US', { 
+                      year: 'numeric', 
+                      month: 'long', 
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })}
+                  </p>
                 </div>
               </div>
             </div>
           </div>
+        </div>
         </div>
       )}
 
@@ -3055,57 +3348,53 @@ const handleDownloadTopAttendeesPDF = async () => {
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ 
-              padding: '16px 24px', 
+              padding: '14px 20px', 
               borderBottom: '1px solid #E9ECEF',
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center'
             }} className="no-print">
               <div>
-                <h2 style={{ fontSize: '17px', fontWeight: '600', color: '#212529', margin: 0, marginBottom: '2px' }}>
+                <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#212529', margin: 0, marginBottom: '2px' }}>
                   Attendance - {selectedSection?.sectionName}
                 </h2>
-                <p style={{ fontSize: '12px', color: '#6C757D', margin: 0 }}>
+                <p style={{ fontSize: '11px', color: '#6C757D', margin: 0 }}>
                   {selectedSection?.adviser}
                 </p>
               </div>
-              <div style={{ display: 'flex', gap: '10px' }}>
-
-<button
-  onClick={handleDownloadAttendancePDF}
-  disabled={downloadingPDF}
-  style={{
-    padding: '7px 14px',
-    backgroundColor: downloadingPDF ? '#9BC5BF' : '#17A2B8',
-    color: 'white',
-    border: 'none',
-    borderRadius: '6px',
-    cursor: downloadingPDF ? 'not-allowed' : 'pointer',
-    fontSize: '13px',
-    fontWeight: '500',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px'
-  }}
->
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-  </svg>
-  {downloadingPDF ? 'Downloading...' : 'Download PDF'}
-</button>
-
-
-
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button
+                  onClick={handleDownloadAttendancePDF}
+                  disabled={downloadingPDF}
+                  style={{
+                    padding: '6px 12px',
+                    backgroundColor: downloadingPDF ? '#9BC5BF' : '#17A2B8',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: downloadingPDF ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    fontWeight: '500',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  {downloadingPDF ? 'Downloading...' : 'PDF'}
+                </button>
                 <button
                   onClick={handlePrintAttendance}
                   style={{
-                    padding: '7px 14px',
+                    padding: '6px 12px',
                     backgroundColor: '#249E94',
                     color: 'white',
                     border: 'none',
                     borderRadius: '6px',
                     cursor: 'pointer',
-                    fontSize: '13px',
+                    fontSize: '12px',
                     fontWeight: '500'
                   }}
                 >
@@ -3119,7 +3408,7 @@ const handleDownloadTopAttendeesPDF = async () => {
                     border: 'none',
                     borderRadius: '6px',
                     cursor: 'pointer',
-                    fontSize: '18px',
+                    fontSize: '16px',
                     color: '#6C757D',
                     lineHeight: 1
                   }}
@@ -3130,10 +3419,10 @@ const handleDownloadTopAttendeesPDF = async () => {
             </div>
 
             {/* Filters */}
-            <div style={{ padding: '20px 24px', borderBottom: '1px solid #E9ECEF', backgroundColor: '#F8F9FA' }} className="no-print">
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: '12px', alignItems: 'end' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #E9ECEF', backgroundColor: '#F8F9FA' }} className="no-print">
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 2fr', gap: '10px', alignItems: 'end' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', color: '#6C757D', marginBottom: '6px', fontWeight: '500' }}>
+                  <label style={{ display: 'block', fontSize: '11px', color: '#6C757D', marginBottom: '6px', fontWeight: '500' }}>
                     Date From
                   </label>
                   <input
@@ -3151,16 +3440,16 @@ const handleDownloadTopAttendeesPDF = async () => {
                     }}
                     style={{
                       width: '100%',
-                      padding: '8px 12px',
+                      padding: '7px 10px',
                       border: '1px solid #DEE2E6',
                       borderRadius: '6px',
-                      fontSize: '14px',
+                      fontSize: '12px',
                       color: '#212529'
                     }}
                   />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', color: '#6C757D', marginBottom: '6px', fontWeight: '500' }}>
+                  <label style={{ display: 'block', fontSize: '11px', color: '#6C757D', marginBottom: '6px', fontWeight: '500' }}>
                     Date To
                   </label>
                   <input
@@ -3178,16 +3467,16 @@ const handleDownloadTopAttendeesPDF = async () => {
                     }}
                     style={{
                       width: '100%',
-                      padding: '8px 12px',
+                      padding: '7px 10px',
                       border: '1px solid #DEE2E6',
                       borderRadius: '6px',
-                      fontSize: '14px',
+                      fontSize: '12px',
                       color: '#212529'
                     }}
                   />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', color: '#6C757D', marginBottom: '6px', fontWeight: '500' }}>
+                  <label style={{ display: 'block', fontSize: '11px', color: '#6C757D', marginBottom: '6px', fontWeight: '500' }}>
                     Student
                   </label>
                   <select
@@ -3204,10 +3493,10 @@ const handleDownloadTopAttendeesPDF = async () => {
                     }}
                     style={{
                       width: '100%',
-                      padding: '8px 12px',
+                      padding: '7px 10px',
                       border: '1px solid #DEE2E6',
                       borderRadius: '6px',
-                      fontSize: '14px',
+                      fontSize: '12px',
                       color: '#212529',
                       backgroundColor: 'white'
                     }}
@@ -3223,27 +3512,27 @@ const handleDownloadTopAttendeesPDF = async () => {
               </div>
             </div>
 
-            <div className="modal-content" style={{ flex: 1, overflow: 'auto', padding: '24px' }}>
-              <div style={{ textAlign: 'center', marginBottom: '28px' }}>
-                <h1 style={{ fontSize: '20px', fontWeight: '600', color: '#212529', margin: 0, marginBottom: '2px' }}>
+            <div className="modal-content" style={{ flex: 1, overflow: 'auto', padding: '20px' }}>
+              <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+                <h1 style={{ fontSize: '18px', fontWeight: '600', color: '#212529', margin: 0, marginBottom: '2px' }}>
                   {schoolData?.schoolName}
                 </h1>
-                <p style={{ fontSize: '12px', color: '#6C757D', margin: 0 }}>School ID: {schoolId}</p>
-                <p style={{ fontSize: '12px', color: '#6C757D', margin: '2px 0 12px 0' }}>{schoolData?.address}</p>
+                <p style={{ fontSize: '11px', color: '#6C757D', margin: 0 }}>School ID: {schoolId}</p>
+                <p style={{ fontSize: '11px', color: '#6C757D', margin: '2px 0 10px 0' }}>{schoolData?.address}</p>
                 
                 <div style={{ 
                   display: 'inline-block',
                   backgroundColor: '#F8F9FA',
-                  padding: '8px 20px',
+                  padding: '6px 16px',
                   borderRadius: '6px',
-                  marginTop: '6px'
+                  marginTop: '4px'
                 }}>
-                  <p style={{ fontSize: '14px', fontWeight: '600', color: '#212529', margin: 0 }}>ATTENDANCE REPORT</p>
+                  <p style={{ fontSize: '12px', fontWeight: '600', color: '#212529', margin: 0 }}>ATTENDANCE REPORT</p>
                 </div>
                 
                 <div style={{ 
-                  marginTop: '16px',
-                  fontSize: '13px',
+                  marginTop: '12px',
+                  fontSize: '11px',
                   color: '#6C757D'
                 }}>
                   <strong>Date Range:</strong> {new Date(dateFrom).toLocaleDateString()} - {new Date(dateTo).toLocaleDateString()}
@@ -3253,54 +3542,56 @@ const handleDownloadTopAttendeesPDF = async () => {
                 </div>
               </div>
 
-              <div style={{ marginBottom: '28px' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+              <div style={{ marginBottom: '24px', overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', minWidth: '600px' }}>
                   <thead>
                     <tr style={{ backgroundColor: '#F8F9FA' }}>
+                      <th style={{ padding: '8px', textAlign: 'center', fontWeight: '600', color: '#6C757D', fontSize: '11px', borderBottom: '1px solid #DEE2E6', width: '40px' }}>NO.</th>
                       {selectedStudent === 'all' && (
-                        <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#6C757D', fontSize: '12px', borderBottom: '1px solid #DEE2E6' }}>STUDENT NAME</th>
+                        <th style={{ padding: '8px', textAlign: 'left', fontWeight: '600', color: '#6C757D', fontSize: '11px', borderBottom: '1px solid #DEE2E6' }}>STUDENT NAME</th>
                       )}
-                      <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#6C757D', fontSize: '12px', borderBottom: '1px solid #DEE2E6' }}>DATE</th>
-                      <th style={{ padding: '12px', textAlign: 'center', fontWeight: '600', color: '#6C757D', fontSize: '12px', borderBottom: '1px solid #DEE2E6' }}>AM IN</th>
-                      <th style={{ padding: '12px', textAlign: 'center', fontWeight: '600', color: '#6C757D', fontSize: '12px', borderBottom: '1px solid #DEE2E6' }}>AM OUT</th>
-                      <th style={{ padding: '12px', textAlign: 'center', fontWeight: '600', color: '#6C757D', fontSize: '12px', borderBottom: '1px solid #DEE2E6' }}>PM IN</th>
-                      <th style={{ padding: '12px', textAlign: 'center', fontWeight: '600', color: '#6C757D', fontSize: '12px', borderBottom: '1px solid #DEE2E6' }}>PM OUT</th>
+                      <th style={{ padding: '8px', textAlign: 'left', fontWeight: '600', color: '#6C757D', fontSize: '11px', borderBottom: '1px solid #DEE2E6', width: '90px' }}>DATE</th>
+                      <th style={{ padding: '8px', textAlign: 'center', fontWeight: '600', color: '#6C757D', fontSize: '11px', borderBottom: '1px solid #DEE2E6', width: '70px' }}>AM IN</th>
+                      <th style={{ padding: '8px', textAlign: 'center', fontWeight: '600', color: '#6C757D', fontSize: '11px', borderBottom: '1px solid #DEE2E6', width: '70px' }}>AM OUT</th>
+                      <th style={{ padding: '8px', textAlign: 'center', fontWeight: '600', color: '#6C757D', fontSize: '11px', borderBottom: '1px solid #DEE2E6', width: '70px' }}>PM IN</th>
+                      <th style={{ padding: '8px', textAlign: 'center', fontWeight: '600', color: '#6C757D', fontSize: '11px', borderBottom: '1px solid #DEE2E6', width: '70px' }}>PM OUT</th>
                     </tr>
                   </thead>
                   <tbody>
                     {attendanceRecords.length > 0 ? (
                       attendanceRecords.map((record, index) => (
                         <tr key={`${record.studentId}-${record.date}-${index}`}>
+                          <td style={{ padding: '8px', textAlign: 'center', color: '#6C757D', borderBottom: '1px solid #F8F9FA' }}>{index + 1}</td>
                           {selectedStudent === 'all' && (
-                            <td style={{ padding: '12px', fontWeight: '500', color: '#212529', borderBottom: '1px solid #F8F9FA' }}>
+                            <td style={{ padding: '8px', fontWeight: '500', color: '#212529', borderBottom: '1px solid #F8F9FA' }}>
                               {record.studentName}
                             </td>
                           )}
-                          <td style={{ padding: '12px', color: '#212529', borderBottom: '1px solid #F8F9FA', fontWeight: '500' }}>
+                          <td style={{ padding: '8px', color: '#212529', borderBottom: '1px solid #F8F9FA', fontWeight: '500' }}>
                             {new Date(record.date).toLocaleDateString('en-US', { 
                               month: 'short', 
                               day: 'numeric', 
                               year: 'numeric'
                             })}
                           </td>
-                          <td style={{ padding: '12px', textAlign: 'center', color: '#249E94', borderBottom: '1px solid #F8F9FA', fontWeight: '500' }}>
+                          <td style={{ padding: '8px', textAlign: 'center', color: '#249E94', borderBottom: '1px solid #F8F9FA', fontWeight: '500' }}>
                             {record.amIn || '-'}
                           </td>
-                          <td style={{ padding: '12px', textAlign: 'center', color: '#6C757D', borderBottom: '1px solid #F8F9FA' }}>
+                          <td style={{ padding: '8px', textAlign: 'center', color: '#6C757D', borderBottom: '1px solid #F8F9FA' }}>
                             {record.amOut || '-'}
                           </td>
-                          <td style={{ padding: '12px', textAlign: 'center', color: '#249E94', borderBottom: '1px solid #F8F9FA', fontWeight: '500' }}>
+                          <td style={{ padding: '8px', textAlign: 'center', color: '#249E94', borderBottom: '1px solid #F8F9FA', fontWeight: '500' }}>
                             {record.pmIn || '-'}
                           </td>
-                          <td style={{ padding: '12px', textAlign: 'center', color: '#6C757D', borderBottom: '1px solid #F8F9FA' }}>
+                          <td style={{ padding: '8px', textAlign: 'center', color: '#6C757D', borderBottom: '1px solid #F8F9FA' }}>
                             {record.pmOut || '-'}
                           </td>
                         </tr>
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={selectedStudent === 'all' ? 6 : 5} style={{ padding: '32px', textAlign: 'center', color: '#ADB5BD', fontSize: '14px' }}>
-                          No attendance records found for the selected filters
+                        <td colSpan={selectedStudent === 'all' ? 7 : 6} style={{ padding: '28px', textAlign: 'center', color: '#ADB5BD', fontSize: '12px' }}>
+                          No attendance records found
                         </td>
                       </tr>
                     )}
@@ -3309,22 +3600,22 @@ const handleDownloadTopAttendeesPDF = async () => {
               </div>
 
               <div style={{ 
-                marginTop: '40px', 
-                paddingTop: '24px',
+                marginTop: '30px', 
+                paddingTop: '20px',
                 borderTop: '1px solid #DEE2E6',
                 display: 'flex', 
                 justifyContent: 'space-between', 
-                fontSize: '13px'
+                fontSize: '11px'
               }}>
                 <div>
-                  <p style={{ margin: 0, color: '#ADB5BD', fontSize: '11px' }}>Prepared by</p>
-                  <p style={{ margin: '4px 0 0 0', fontWeight: '600', color: '#212529', fontSize: '15px' }}>{selectedSection?.adviser}</p>
-                  <p style={{ margin: '20px 0 0 0', color: '#DEE2E6' }}>____________________</p>
-                  <p style={{ margin: '4px 0 0 0', fontSize: '10px', color: '#ADB5BD' }}>Signature</p>
+                  <p style={{ margin: 0, color: '#ADB5BD', fontSize: '10px' }}>Prepared by</p>
+                  <p style={{ margin: '4px 0 0 0', fontWeight: '600', color: '#212529', fontSize: '13px' }}>{selectedSection?.adviser}</p>
+                  <p style={{ margin: '15px 0 0 0', color: '#DEE2E6' }}>____________________</p>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '9px', color: '#ADB5BD' }}>Signature</p>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <p style={{ margin: 0, fontSize: '11px', color: '#ADB5BD' }}>Printed as of</p>
-                  <p style={{ margin: '4px 0 0 0', fontWeight: '500', color: '#212529' }}>
+                  <p style={{ margin: 0, fontSize: '10px', color: '#ADB5BD' }}>Printed as of</p>
+                  <p style={{ margin: '4px 0 0 0', fontWeight: '500', color: '#212529', fontSize: '11px' }}>
                     {new Date().toLocaleDateString('en-US', { 
                       year: 'numeric', 
                       month: 'long', 
@@ -3377,23 +3668,25 @@ const handleDownloadTopAttendeesPDF = async () => {
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ 
-              padding: '16px 24px', 
+              padding: '14px 20px', 
               borderBottom: '1px solid #E9ECEF',
               display: 'flex',
               justifyContent: 'space-between',
-              alignItems: 'center'
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '10px'
             }} className="no-print">
               <div>
-                <h2 style={{ fontSize: '17px', fontWeight: '600', color: '#212529', margin: 0, marginBottom: '2px' }}>
+                <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#212529', margin: 0, marginBottom: '2px' }}>
                   Top Attendees - {selectedSection?.sectionName}
                 </h2>
-                <p style={{ fontSize: '12px', color: '#6C757D', margin: 0 }}>
+                <p style={{ fontSize: '11px', color: '#6C757D', margin: 0 }}>
                   {selectedSection?.adviser}
                 </p>
               </div>
-              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <label style={{ fontSize: '13px', color: '#6C757D', fontWeight: '500' }}>Top</label>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <label style={{ fontSize: '11px', color: '#6C757D', fontWeight: '500' }}>Top</label>
                   <input
                     type="number"
                     min="1"
@@ -3401,52 +3694,47 @@ const handleDownloadTopAttendeesPDF = async () => {
                     value={topCount}
                     onChange={(e) => setTopCount(parseInt(e.target.value) || 10)}
                     style={{
-                      width: '70px',
-                      padding: '6px 10px',
+                      width: '60px',
+                      padding: '5px 8px',
                       border: '1px solid #DEE2E6',
                       borderRadius: '6px',
-                      fontSize: '13px',
+                      fontSize: '12px',
                       textAlign: 'center'
                     }}
                   />
                 </div>
-
-<button
-  onClick={handleDownloadTopAttendeesPDF}
-  disabled={downloadingPDF}
-  style={{
-    padding: '7px 14px',
-    backgroundColor: downloadingPDF ? '#9BC5BF' : '#17A2B8',
-    color: 'white',
-    border: 'none',
-    borderRadius: '6px',
-    cursor: downloadingPDF ? 'not-allowed' : 'pointer',
-    fontSize: '13px',
-    fontWeight: '500',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px'
-  }}
->
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-  </svg>
-  {downloadingPDF ? 'Downloading...' : 'Download PDF'}
-</button>
-
-
-
-
+                <button
+                  onClick={handleDownloadTopAttendeesPDF}
+                  disabled={downloadingPDF}
+                  style={{
+                    padding: '6px 12px',
+                    backgroundColor: downloadingPDF ? '#9BC5BF' : '#17A2B8',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: downloadingPDF ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    fontWeight: '500',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  {downloadingPDF ? 'Downloading...' : 'PDF'}
+                </button>
                 <button
                   onClick={handlePrintTopAttendees}
                   style={{
-                    padding: '7px 14px',
+                    padding: '6px 12px',
                     backgroundColor: '#249E94',
                     color: 'white',
                     border: 'none',
                     borderRadius: '6px',
                     cursor: 'pointer',
-                    fontSize: '13px',
+                    fontSize: '12px',
                     fontWeight: '500'
                   }}
                 >
@@ -3460,7 +3748,7 @@ const handleDownloadTopAttendeesPDF = async () => {
                     border: 'none',
                     borderRadius: '6px',
                     cursor: 'pointer',
-                    fontSize: '18px',
+                    fontSize: '16px',
                     color: '#6C757D',
                     lineHeight: 1
                   }}
@@ -3470,54 +3758,54 @@ const handleDownloadTopAttendeesPDF = async () => {
               </div>
             </div>
 
-            <div className="modal-content" style={{ flex: 1, overflow: 'auto', padding: '24px' }}>
-              <div style={{ textAlign: 'center', marginBottom: '28px' }}>
-                <h1 style={{ fontSize: '20px', fontWeight: '600', color: '#212529', margin: 0, marginBottom: '2px' }}>
+            <div className="modal-content" style={{ flex: 1, overflow: 'auto', padding: '20px' }}>
+              <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+                <h1 style={{ fontSize: '18px', fontWeight: '600', color: '#212529', margin: 0, marginBottom: '2px' }}>
                   {schoolData?.schoolName}
                 </h1>
-                <p style={{ fontSize: '12px', color: '#6C757D', margin: 0 }}>School ID: {schoolId}</p>
-                <p style={{ fontSize: '12px', color: '#6C757D', margin: '2px 0 12px 0' }}>{schoolData?.address}</p>
+                <p style={{ fontSize: '11px', color: '#6C757D', margin: 0 }}>School ID: {schoolId}</p>
+                <p style={{ fontSize: '11px', color: '#6C757D', margin: '2px 0 10px 0' }}>{schoolData?.address}</p>
                 
                 <div style={{ 
                   display: 'inline-block',
                   backgroundColor: '#F8F9FA',
-                  padding: '8px 20px',
+                  padding: '6px 16px',
                   borderRadius: '6px',
-                  marginTop: '6px'
+                  marginTop: '4px'
                 }}>
-                  <p style={{ fontSize: '14px', fontWeight: '600', color: '#212529', margin: 0 }}>TOP {topCount} ATTENDEES</p>
+                  <p style={{ fontSize: '12px', fontWeight: '600', color: '#212529', margin: 0 }}>TOP {topCount} ATTENDEES</p>
                 </div>
               </div>
 
-              <div style={{ marginBottom: '28px' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+              <div style={{ marginBottom: '24px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
                   <thead>
                     <tr style={{ backgroundColor: '#F8F9FA' }}>
-                      <th style={{ padding: '12px', textAlign: 'center', fontWeight: '600', color: '#6C757D', fontSize: '12px', borderBottom: '1px solid #DEE2E6', width: '100px' }}>RANK</th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#6C757D', fontSize: '12px', borderBottom: '1px solid #DEE2E6' }}>STUDENT NAME</th>
-                      <th style={{ padding: '12px', textAlign: 'center', fontWeight: '600', color: '#6C757D', fontSize: '12px', borderBottom: '1px solid #DEE2E6' }}>ATTENDANCE COUNT</th>
-                      <th style={{ padding: '12px', textAlign: 'center', fontWeight: '600', color: '#6C757D', fontSize: '12px', borderBottom: '1px solid #DEE2E6' }}>STATUS</th>
+                      <th style={{ padding: '8px', textAlign: 'center', fontWeight: '600', color: '#6C757D', fontSize: '11px', borderBottom: '1px solid #DEE2E6', width: '70px' }}>RANK</th>
+                      <th style={{ padding: '8px', textAlign: 'left', fontWeight: '600', color: '#6C757D', fontSize: '11px', borderBottom: '1px solid #DEE2E6' }}>STUDENT NAME</th>
+                      <th style={{ padding: '8px', textAlign: 'center', fontWeight: '600', color: '#6C757D', fontSize: '11px', borderBottom: '1px solid #DEE2E6', width: '120px' }}>ATTENDANCE COUNT</th>
+                      <th style={{ padding: '8px', textAlign: 'center', fontWeight: '600', color: '#6C757D', fontSize: '11px', borderBottom: '1px solid #DEE2E6', width: '90px' }}>STATUS</th>
                     </tr>
                   </thead>
                   <tbody>
                     {topAttendees.slice(0, topCount).map((student, index) => (
                       <tr key={student.id}>
-                        <td style={{ padding: '12px', textAlign: 'center', color: '#249E94', borderBottom: '1px solid #F8F9FA', fontWeight: '700', fontSize: '16px' }}>
+                        <td style={{ padding: '8px', textAlign: 'center', color: '#249E94', borderBottom: '1px solid #F8F9FA', fontWeight: '700', fontSize: '14px' }}>
                           {index + 1}
                         </td>
-                        <td style={{ padding: '12px', fontWeight: '500', color: '#212529', borderBottom: '1px solid #F8F9FA' }}>
+                        <td style={{ padding: '8px', fontWeight: '500', color: '#212529', borderBottom: '1px solid #F8F9FA' }}>
                           {student.name}
                         </td>
-                        <td style={{ padding: '12px', textAlign: 'center', color: '#249E94', borderBottom: '1px solid #F8F9FA', fontWeight: '600', fontSize: '16px' }}>
+                        <td style={{ padding: '8px', textAlign: 'center', color: '#249E94', borderBottom: '1px solid #F8F9FA', fontWeight: '600', fontSize: '14px' }}>
                           {student.attendanceCount}
                         </td>
-                        <td style={{ padding: '12px', textAlign: 'center', borderBottom: '1px solid #F8F9FA' }}>
+                        <td style={{ padding: '8px', textAlign: 'center', borderBottom: '1px solid #F8F9FA' }}>
                           <span style={{ 
                             backgroundColor: student.status === 'ACTIVE' ? '#D4EDDA' : '#F8D7DA',
                             color: student.status === 'ACTIVE' ? '#155724' : '#721C24',
-                            padding: '4px 12px',
-                            borderRadius: '12px',
-                            fontSize: '11px',
+                            padding: '3px 10px',
+                            borderRadius: '10px',
+                            fontSize: '10px',
                             fontWeight: '600'
                           }}>
                             {student.status}
@@ -3530,22 +3818,22 @@ const handleDownloadTopAttendeesPDF = async () => {
               </div>
 
               <div style={{ 
-                marginTop: '40px', 
-                paddingTop: '24px',
+                marginTop: '30px', 
+                paddingTop: '20px',
                 borderTop: '1px solid #DEE2E6',
                 display: 'flex', 
                 justifyContent: 'space-between', 
-                fontSize: '13px'
+                fontSize: '11px'
               }}>
                 <div>
-                  <p style={{ margin: 0, color: '#ADB5BD', fontSize: '11px' }}>Prepared by</p>
-                  <p style={{ margin: '4px 0 0 0', fontWeight: '600', color: '#212529', fontSize: '15px' }}>{selectedSection?.adviser}</p>
-                  <p style={{ margin: '20px 0 0 0', color: '#DEE2E6' }}>____________________</p>
-                  <p style={{ margin: '4px 0 0 0', fontSize: '10px', color: '#ADB5BD' }}>Signature</p>
+                  <p style={{ margin: 0, color: '#ADB5BD', fontSize: '10px' }}>Prepared by</p>
+                  <p style={{ margin: '4px 0 0 0', fontWeight: '600', color: '#212529', fontSize: '13px' }}>{selectedSection?.adviser}</p>
+                  <p style={{ margin: '15px 0 0 0', color: '#DEE2E6' }}>____________________</p>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '9px', color: '#ADB5BD' }}>Signature</p>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <p style={{ margin: 0, fontSize: '11px', color: '#ADB5BD' }}>Printed as of</p>
-                  <p style={{ margin: '4px 0 0 0', fontWeight: '500', color: '#212529' }}>
+                  <p style={{ margin: 0, fontSize: '10px', color: '#ADB5BD' }}>Printed as of</p>
+                  <p style={{ margin: '4px 0 0 0', fontWeight: '500', color: '#212529', fontSize: '11px' }}>
                     {new Date().toLocaleDateString('en-US', { 
                       year: 'numeric', 
                       month: 'long', 
