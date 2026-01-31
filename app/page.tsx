@@ -1,3 +1,4 @@
+// app/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -5,7 +6,25 @@ import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { db } from '@/lib/firebase';
 import { collection, query, where, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
-import Image from 'next/image'
+import Image from 'next/image';
+
+const COLORS = {
+  primary: '#249E94',
+  primaryHover: '#1E8A7F',
+  bgDark: '#0F172A',
+  bgCard: '#1E293B',
+  bgCardHover: '#334155',
+  textPrimary: '#F8FAFC',
+  textSecondary: '#94A3B8',
+  textMuted: '#64748B',
+  border: '#334155',
+  error: '#EF4444',
+  errorBg: '#FEE2E2',
+  success: '#10B981',
+  successBg: '#D1FAE5',
+  warning: '#F59E0B',
+  warningBg: '#FEF3C7',
+};
 
 export default function Home() {
   const router = useRouter();
@@ -22,7 +41,6 @@ export default function Home() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittedData, setSubmittedData] = useState({ mobileNumber: '', email: '' });
   
-  // Trial form state
   const [trialForm, setTrialForm] = useState({
     schoolId: '',
     schoolName: '',
@@ -31,20 +49,12 @@ export default function Home() {
     mobileNumber: '',
     email: ''
   });
-  const [formErrors, setFormErrors] = useState<{
-    schoolId?: string;
-    schoolName?: string;
-    schoolAddress?: string;
-    principalName?: string;
-    mobileNumber?: string;
-    email?: string;
-    submit?: string;
-  }>({});
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   
   const phrases = [
-    "Real-Time Monitoring",
-    "Progress Tracking",
-    "Mobile Accessibility"
+    "Student Security",
+    "Parents Peace of Mind",
+    "Reduce Teachers Workload"
   ];
   const [currentPhraseIndex, setCurrentPhraseIndex] = useState(0);
   const [currentText, setCurrentText] = useState('');
@@ -89,17 +99,11 @@ export default function Home() {
   useEffect(() => {
     if (showLoginModal || showContactModal || showTrialModal || showSuccessModal) {
       document.body.style.overflow = 'hidden';
-      document.body.style.position = 'fixed';
-      document.body.style.width = '100%';
     } else {
       document.body.style.overflow = '';
-      document.body.style.position = '';
-      document.body.style.width = '';
     }
     return () => {
       document.body.style.overflow = '';
-      document.body.style.position = '';
-      document.body.style.width = '';
     };
   }, [showLoginModal, showContactModal, showTrialModal, showSuccessModal]);
 
@@ -140,14 +144,7 @@ export default function Home() {
   };
 
   const validateTrialForm = () => {
-    const errors: {
-      schoolId?: string;
-      schoolName?: string;
-      schoolAddress?: string;
-      principalName?: string;
-      mobileNumber?: string;
-      email?: string;
-    } = {};
+    const errors: Record<string, string> = {};
     
     if (!trialForm.schoolId.trim()) errors.schoolId = 'School ID is required';
     if (!trialForm.schoolName.trim()) errors.schoolName = 'School Name is required';
@@ -177,7 +174,6 @@ export default function Home() {
     setFormErrors({});
     
     try {
-      // Check if school ID already exists
       const schoolQuery = query(
         collection(db, 'trial_requests'),
         where('schoolId', '==', trialForm.schoolId)
@@ -190,24 +186,20 @@ export default function Home() {
         return;
       }
       
-      // Save submitted data for display in success modal
       setSubmittedData({
         mobileNumber: trialForm.mobileNumber,
         email: trialForm.email
       });
       
-      // Save to Firebase
       await addDoc(collection(db, 'trial_requests'), {
         ...trialForm,
         createdAt: serverTimestamp(),
         status: 'pending'
       });
       
-      // Close trial modal and show success modal
       setShowTrialModal(false);
       setShowSuccessModal(true);
       
-      // Reset form
       setTrialForm({
         schoolId: '',
         schoolName: '',
@@ -220,12 +212,7 @@ export default function Home() {
     } catch (error: any) {
       console.error('Error submitting trial form:', error);
       
-      // Check if it's a Firebase connection error
-      if (error?.code === 'unavailable' || 
-          error?.message?.includes('Failed to get document') ||
-          error?.message?.includes('Could not reach') ||
-          error?.message?.includes('offline') ||
-          !navigator.onLine) {
+      if (error?.code === 'unavailable' || !navigator.onLine) {
         setFormErrors({ 
           submit: '⚠️ No internet connection. Please check your connection and try again.' 
         });
@@ -251,7 +238,6 @@ export default function Home() {
     setErrorMessage('');
 
     try {
-      // Only accept school account PINs (sectionId must be null or empty)
       const pinQuery = query(
         collection(db, 'pincodes'),
         where('code', '==', enteredPin),
@@ -264,14 +250,12 @@ export default function Home() {
         const pinDoc = pinSnapshot.docs[0];
         const pinData = pinDoc.data();
         
-        // Check if this is a section account PIN (reject it)
         if (pinData.sectionId && pinData.sectionId !== null && pinData.sectionId !== '') {
           setErrorMessage('Section account access is not available. Please use school account PIN.');
           setIsVerifying(false);
           return;
         }
         
-        // Only allow school account PINs
         sessionStorage.setItem('schoolId', pinData.schoolId);
         sessionStorage.setItem('pinType', 'school');
         sessionStorage.setItem('pinCode', enteredPin);
@@ -292,73 +276,124 @@ export default function Home() {
 
   return (
     <>
-      <div style={{ minHeight: '100vh', overflow: 'auto', background: '#FFFFFF' }}>
-        <header style={{ backgroundColor: 'white', boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1)' }}>
+      <div style={{ minHeight: '100vh', background: COLORS.bgDark }}>
+        <header style={{ backgroundColor: COLORS.bgCard, boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.3)', borderBottom: `1px solid ${COLORS.border}` }}>
           <div style={{ maxWidth: '1280px', margin: '0 auto', padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div 
               style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }}
               onClick={() => router.push('/')}
             >
-            <Image 
-  src="https://firebasestorage.googleapis.com/v0/b/scaned-1f910.firebasestorage.app/o/logo.png?alt=media"
-  alt="ScanED Logo"
-  width={48}
-  height={48}
-  priority
-  unoptimized
-/>
-              <span style={{ fontSize: '24px', fontWeight: 'bold', color: '#111827' }}>ScanED</span>
+              <Image 
+                src="https://firebasestorage.googleapis.com/v0/b/scaned-1f910.firebasestorage.app/o/logo.png?alt=media"
+                alt="ScanED Logo"
+                width={40}
+                height={40}
+                priority
+                unoptimized
+              />
+              <span style={{ fontSize: '24px', fontWeight: 'bold', color: COLORS.textPrimary }}>ScanED</span>
             </div>
 
-            <nav style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <nav style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <a 
                 href="/" 
-                style={{ color: '#374151', fontWeight: '500', textDecoration: 'none', transition: 'color 0.2s', fontSize: '16px', display: isMobile ? 'none' : 'block' }}
-                onMouseEnter={(e) => e.currentTarget.style.color = '#6DCAC3'}
-                onMouseLeave={(e) => e.currentTarget.style.color = '#374151'}
+                title="Home"
+                style={{ 
+                  color: COLORS.textSecondary, 
+                  padding: '10px', 
+                  borderRadius: '8px',
+                  transition: 'all 0.2s', 
+                  display: isMobile ? 'none' : 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = COLORS.primary;
+                  e.currentTarget.style.backgroundColor = COLORS.bgCardHover;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = COLORS.textSecondary;
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                }}
               >
-                Home
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                </svg>
               </a>
+
               <a 
                 href="/about" 
-                style={{ color: '#374151', fontWeight: '500', textDecoration: 'none', transition: 'color 0.2s', fontSize: '16px', display: isMobile ? 'none' : 'block' }}
-                onMouseEnter={(e) => e.currentTarget.style.color = '#6DCAC3'}
-                onMouseLeave={(e) => e.currentTarget.style.color = '#374151'}
+                title="About"
+                style={{ 
+                  color: COLORS.textSecondary, 
+                  padding: '10px', 
+                  borderRadius: '8px',
+                  transition: 'all 0.2s', 
+                  display: isMobile ? 'none' : 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = COLORS.primary;
+                  e.currentTarget.style.backgroundColor = COLORS.bgCardHover;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = COLORS.textSecondary;
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                }}
               >
-                About
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
               </a>
+
               <a 
                 href="/subscribers" 
-                style={{ color: '#374151', fontWeight: '500', textDecoration: 'none', transition: 'color 0.2s', fontSize: '16px', display: isMobile ? 'none' : 'block' }}
-                onMouseEnter={(e) => e.currentTarget.style.color = '#6DCAC3'}
-                onMouseLeave={(e) => e.currentTarget.style.color = '#374151'}
+                title="Subscribers"
+                style={{ 
+                  color: COLORS.textSecondary, 
+                  padding: '10px', 
+                  borderRadius: '8px',
+                  transition: 'all 0.2s', 
+                  display: isMobile ? 'none' : 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = COLORS.primary;
+                  e.currentTarget.style.backgroundColor = COLORS.bgCardHover;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = COLORS.textSecondary;
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                }}
               >
-                Subscribers
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
               </a>
               
               <button
                 onClick={() => setShowLoginModal(true)}
                 style={{ 
                   padding: '10px 24px', 
-                  backgroundColor: '#6DCAC3', 
-                  color: 'white', 
+                  backgroundColor: COLORS.primary, 
+                  color: COLORS.textPrimary, 
                   borderRadius: '8px', 
-                  fontWeight: '500', 
+                  fontWeight: '600', 
                   border: 'none', 
                   cursor: 'pointer', 
-                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)', 
                   transition: 'all 0.2s', 
-                  fontSize: '16px'
+                  fontSize: '14px',
+                  marginLeft: '8px'
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#5AB9B3';
+                  e.currentTarget.style.backgroundColor = COLORS.primaryHover;
                   e.currentTarget.style.transform = 'translateY(-2px)';
-                  e.currentTarget.style.boxShadow = '0 6px 12px -2px rgba(0, 0, 0, 0.2)';
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = '#6DCAC3';
+                  e.currentTarget.style.backgroundColor = COLORS.primary;
                   e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
                 }}
               >
                 Login
@@ -371,11 +406,12 @@ export default function Home() {
                   background: 'none',
                   border: 'none',
                   cursor: 'pointer',
-                  padding: '8px'
+                  padding: '8px',
+                  color: COLORS.textSecondary
                 }}
               >
-                <svg style={{ width: '28px', height: '28px', color: '#374151' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                <svg style={{ width: '24px', height: '24px' }} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
                 </svg>
               </button>
             </nav>
@@ -383,57 +419,90 @@ export default function Home() {
 
           {showMobileMenu && (
             <div style={{ 
-              backgroundColor: 'white', 
-              borderTop: '1px solid #E5E7EB',
+              backgroundColor: COLORS.bgCard, 
+              borderTop: `1px solid ${COLORS.border}`,
               padding: '16px 24px',
               display: 'flex',
               flexDirection: 'column',
-              gap: '16px'
+              gap: '12px'
             }}>
               <a 
                 href="/" 
-                style={{ color: '#374151', fontWeight: '500', textDecoration: 'none', fontSize: '16px', padding: '8px 0' }}
+                style={{ 
+                  color: COLORS.textSecondary, 
+                  fontWeight: '500', 
+                  textDecoration: 'none', 
+                  padding: '8px 0',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px'
+                }}
                 onClick={() => setShowMobileMenu(false)}
               >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                </svg>
                 Home
               </a>
               <a 
                 href="/about" 
-                style={{ color: '#374151', fontWeight: '500', textDecoration: 'none', fontSize: '16px', padding: '8px 0' }}
+                style={{ 
+                  color: COLORS.textSecondary, 
+                  fontWeight: '500', 
+                  textDecoration: 'none', 
+                  padding: '8px 0',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px'
+                }}
                 onClick={() => setShowMobileMenu(false)}
               >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
                 About
               </a>
               <a 
                 href="/subscribers" 
-                style={{ color: '#374151', fontWeight: '500', textDecoration: 'none', fontSize: '16px', padding: '8px 0' }}
+                style={{ 
+                  color: COLORS.textSecondary, 
+                  fontWeight: '500', 
+                  textDecoration: 'none', 
+                  padding: '8px 0',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px'
+                }}
                 onClick={() => setShowMobileMenu(false)}
               >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
                 Subscribers
               </a>
             </div>
           )}
         </header>
 
-        <main style={{ padding: '20px 24px', minHeight: 'calc(100vh - 80px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <main style={{ padding: '40px 24px', minHeight: 'calc(100vh - 80px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ maxWidth: '1280px', width: '100%' }}>
-            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: 'center', gap: isMobile ? '32px' : '80px', justifyContent: 'center' }}>
+            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: 'center', gap: isMobile ? '40px' : '80px', justifyContent: 'center' }}>
               
               <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'center' }}>
-             <Image 
-  src="https://firebasestorage.googleapis.com/v0/b/scaned-1f910.firebasestorage.app/o/hero.png?alt=media"
-  alt="ScanED Education Tracker"
-  width={400}
-  height={400}
-  priority
-  unoptimized
-  style={{
-    width: '100%',
-    maxWidth: isMobile ? '280px' : '400px',
-    height: 'auto',
-    filter: 'drop-shadow(0 25px 60px rgba(0,0,0,0.15))'
-  }}
-/>
+                <Image 
+                  src="https://firebasestorage.googleapis.com/v0/b/scaned-1f910.firebasestorage.app/o/hero.png?alt=media"
+                  alt="ScanED Education Tracker"
+                  width={400}
+                  height={400}
+                  priority
+                  unoptimized
+                  style={{
+                    width: '100%',
+                    maxWidth: isMobile ? '280px' : '400px',
+                    height: 'auto',
+                    filter: 'drop-shadow(0 25px 60px rgba(36, 158, 148, 0.3))'
+                  }}
+                />
               </div>
 
               <div style={{ flex: '1', minWidth: isMobile ? '100%' : '300px', maxWidth: '600px', textAlign: isMobile ? 'center' : 'left' }}>
@@ -442,7 +511,7 @@ export default function Home() {
                   fontWeight: '900', 
                   lineHeight: '0.9', 
                   letterSpacing: '-0.025em', 
-                  color: '#111827',
+                  color: COLORS.textPrimary,
                   marginBottom: '20px'
                 }}>
                   ScanED Attendance
@@ -450,14 +519,14 @@ export default function Home() {
                 
                 <div style={{ minHeight: isMobile ? '60px' : 'clamp(80px, 12vw, 120px)', marginBottom: '20px' }}>
                   <h2 style={{ fontSize: isMobile ? '32px' : 'clamp(48px, 6vw, 65px)', fontWeight: '900', lineHeight: '0.9', letterSpacing: '-0.025em' }}>
-                    <span style={{ color: '#6DCAC3' }}>{currentText}</span>
+                    <span style={{ color: COLORS.primary }}>{currentText}</span>
                     <span style={{ color: '#F5A76C', animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }}>|</span>
                   </h2>
                 </div>
 
                 <p style={{ 
                   fontSize: isMobile ? '16px' : 'clamp(18px, 2vw, 20px)', 
-                  color: '#4B5563', 
+                  color: COLORS.textSecondary, 
                   lineHeight: '1.75', 
                   maxWidth: '640px',
                   marginTop: '12px',
@@ -465,50 +534,50 @@ export default function Home() {
                   marginLeft: isMobile ? 'auto' : '0',
                   marginRight: isMobile ? 'auto' : '0'
                 }}>
-                  Empower educators with tools to improve student outcomes.
+                  Empowering teachers. Inspiring students. Improving outcomes.
                 </p>
 
-                {/* FREE TRIAL Button */}
-                <button
-                  onClick={() => setShowTrialModal(true)}
-                  style={{
-                    padding: '16px 48px',
-                    backgroundColor: '#F5A76C',
-                    color: 'white',
-                    borderRadius: '12px',
-                    fontWeight: '700',
-                    fontSize: '18px',
-                    border: 'none',
-                    cursor: 'pointer',
-                    boxShadow: '0 10px 25px rgba(245, 167, 108, 0.4)',
-                    transition: 'all 0.3s',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.05em',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px',
-                    margin: isMobile ? '0 auto' : '0'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = '#E89659';
-                    e.currentTarget.style.transform = 'translateY(-4px)';
-                    e.currentTarget.style.boxShadow = '0 15px 35px rgba(245, 167, 108, 0.5)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = '#F5A76C';
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.boxShadow = '0 10px 25px rgba(245, 167, 108, 0.4)';
-                  }}
-                >
-                  <svg style={{ width: '24px', height: '24px' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                  Start FREE Trial
-                </button>
+               <button
+  onClick={() => setShowTrialModal(true)}
+  style={{
+    padding: '16px 48px',
+    backgroundColor: '#22C55E', // Emerald Green
+    color: '#FFFFFF',
+    borderRadius: '14px',
+    fontWeight: '700',
+    fontSize: '18px',
+    border: 'none',
+    cursor: 'pointer',
+    boxShadow: '0 12px 30px rgba(34, 197, 94, 0.45)',
+    transition: 'all 0.3s ease',
+    textTransform: 'uppercase',
+    letterSpacing: '0.06em',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '12px',
+    margin: isMobile ? '0 auto' : '0',
+  }}
+  onMouseEnter={(e) => {
+    e.currentTarget.style.backgroundColor = '#16A34A'; // darker emerald
+    e.currentTarget.style.transform = 'translateY(-4px) scale(1.02)';
+    e.currentTarget.style.boxShadow =
+      '0 18px 40px rgba(34, 197, 94, 0.6)';
+  }}
+  onMouseLeave={(e) => {
+    e.currentTarget.style.backgroundColor = '#22C55E';
+    e.currentTarget.style.transform = 'translateY(0) scale(1)';
+    e.currentTarget.style.boxShadow =
+      '0 12px 30px rgba(34, 197, 94, 0.45)';
+  }}
+>
+   Start FREE Trial
+</button>
+
                 
                 <p style={{ 
                   fontSize: '14px', 
-                  color: '#9CA3AF', 
+                  color: COLORS.textMuted, 
                   marginTop: '12px',
                   textAlign: isMobile ? 'center' : 'left'
                 }}>
@@ -520,7 +589,6 @@ export default function Home() {
           </div>
         </main>
 
-        {/* Floating Contact Button */}
         <button
           onClick={() => setShowContactModal(true)}
           style={{
@@ -530,11 +598,11 @@ export default function Home() {
             width: '60px',
             height: '60px',
             borderRadius: '50%',
-            backgroundColor: '#6DCAC3',
+            backgroundColor: COLORS.primary,
             color: 'white',
             border: 'none',
             cursor: 'pointer',
-            boxShadow: '0 8px 16px rgba(0, 0, 0, 0.2)',
+            boxShadow: '0 8px 16px rgba(0, 0, 0, 0.3)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -543,20 +611,20 @@ export default function Home() {
           }}
           onMouseEnter={(e) => {
             e.currentTarget.style.transform = 'scale(1.1)';
-            e.currentTarget.style.boxShadow = '0 12px 24px rgba(0, 0, 0, 0.3)';
+            e.currentTarget.style.boxShadow = '0 12px 24px rgba(0, 0, 0, 0.4)';
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.transform = 'scale(1)';
-            e.currentTarget.style.boxShadow = '0 8px 16px rgba(0, 0, 0, 0.2)';
+            e.currentTarget.style.boxShadow = '0 8px 16px rgba(0, 0, 0, 0.3)';
           }}
         >
-          <svg style={{ width: '28px', height: '28px' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+          <svg style={{ width: '28px', height: '28px' }} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
           </svg>
         </button>
       </div>
 
-      {/* Login Modal */}
+      {/* LOGIN MODAL */}
       {typeof window !== 'undefined' && mounted && showLoginModal && createPortal(
         <div 
           style={{
@@ -569,7 +637,7 @@ export default function Home() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
             backdropFilter: 'blur(8px)',
             WebkitBackdropFilter: 'blur(8px)'
           }}
@@ -577,14 +645,15 @@ export default function Home() {
         >
           <div 
             style={{
-              backgroundColor: 'white',
+              backgroundColor: COLORS.bgCard,
               borderRadius: '24px',
               padding: '48px',
               boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
               maxWidth: '448px',
               width: '100%',
               margin: '16px',
-              position: 'relative'
+              position: 'relative',
+              border: `1px solid ${COLORS.border}`
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -594,7 +663,7 @@ export default function Home() {
                 position: 'absolute',
                 top: '20px',
                 right: '20px',
-                color: '#9CA3AF',
+                color: COLORS.textMuted,
                 background: 'none',
                 border: 'none',
                 cursor: 'pointer',
@@ -606,11 +675,11 @@ export default function Home() {
               </svg>
             </button>
 
-            <h2 style={{ fontSize: '30px', fontWeight: 'bold', color: '#111827', textAlign: 'center', marginBottom: '8px' }}>
+            <h2 style={{ fontSize: '30px', fontWeight: 'bold', color: COLORS.textPrimary, textAlign: 'center', marginBottom: '8px' }}>
               School Login
             </h2>
 
-            <p style={{ color: '#6B7280', textAlign: 'center', marginBottom: '40px' }}>
+            <p style={{ color: COLORS.textSecondary, textAlign: 'center', marginBottom: '40px' }}>
               Enter your school account 6-digit PIN
             </p>
 
@@ -633,18 +702,19 @@ export default function Home() {
                     textAlign: 'center',
                     fontSize: '24px',
                     fontWeight: 'bold',
-                    border: '2px solid #E5E7EB',
+                    border: `2px solid ${COLORS.border}`,
                     borderRadius: '12px',
-                    backgroundColor: 'rgba(249, 250, 251, 0.5)',
+                    backgroundColor: COLORS.bgDark,
+                    color: COLORS.textPrimary,
                     outline: 'none',
                     opacity: isVerifying ? 0.6 : 1
                   }}
                   onFocus={(e) => {
-                    e.target.style.borderColor = '#6DCAC3';
-                    e.target.style.boxShadow = '0 0 0 4px rgba(109, 202, 195, 0.2)';
+                    e.target.style.borderColor = COLORS.primary;
+                    e.target.style.boxShadow = `0 0 0 4px rgba(36, 158, 148, 0.2)`;
                   }}
                   onBlur={(e) => {
-                    e.target.style.borderColor = '#E5E7EB';
+                    e.target.style.borderColor = COLORS.border;
                     e.target.style.boxShadow = 'none';
                   }}
                 />
@@ -652,7 +722,7 @@ export default function Home() {
             </div>
 
             {errorMessage && (
-              <p style={{ color: '#DC2626', textAlign: 'center', fontSize: '14px', marginBottom: '16px' }}>
+              <p style={{ color: COLORS.error, textAlign: 'center', fontSize: '14px', marginBottom: '16px' }}>
                 {errorMessage}
               </p>
             )}
@@ -663,9 +733,9 @@ export default function Home() {
               style={{
                 width: '100%',
                 padding: '14px',
-                backgroundColor: '#6DCAC3',
+                backgroundColor: COLORS.primary,
                 opacity: (pin.some(d => !d) || isVerifying) ? 0.4 : 1,
-                color: 'white',
+                color: COLORS.textPrimary,
                 borderRadius: '12px',
                 fontWeight: '600',
                 fontSize: '16px',
@@ -677,11 +747,11 @@ export default function Home() {
               }}
               onMouseEnter={(e) => {
                 if (!pin.some(d => !d) && !isVerifying) {
-                  e.currentTarget.style.backgroundColor = '#5AB9B3';
+                  e.currentTarget.style.backgroundColor = COLORS.primaryHover;
                 }
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = '#6DCAC3';
+                e.currentTarget.style.backgroundColor = COLORS.primary;
               }}
             >
               {isVerifying ? 'VERIFYING...' : 'LOGIN'}
@@ -691,7 +761,7 @@ export default function Home() {
         document.body
       )}
 
-      {/* FREE TRIAL Registration Modal - Compact Size */}
+      {/* TRIAL MODAL */}
       {typeof window !== 'undefined' && mounted && showTrialModal && createPortal(
         <div 
           style={{
@@ -704,7 +774,7 @@ export default function Home() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
             backdropFilter: 'blur(8px)',
             WebkitBackdropFilter: 'blur(8px)',
             overflowY: 'auto',
@@ -714,16 +784,17 @@ export default function Home() {
         >
           <div 
             style={{
-              backgroundColor: 'white',
+              backgroundColor: COLORS.bgCard,
               borderRadius: '16px',
               padding: isMobile ? '24px 20px' : '32px 28px',
               boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
-              maxWidth: '480px',
+              maxWidth: '500px',
               width: '100%',
               position: 'relative',
               margin: '20px auto',
               maxHeight: '90vh',
-              overflowY: 'auto'
+              overflowY: 'auto',
+              border: `1px solid ${COLORS.border}`
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -733,7 +804,7 @@ export default function Home() {
                 position: 'absolute',
                 top: '16px',
                 right: '16px',
-                color: '#9CA3AF',
+                color: COLORS.textMuted,
                 background: 'none',
                 border: 'none',
                 cursor: 'pointer',
@@ -747,33 +818,19 @@ export default function Home() {
             </button>
 
             <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-              <div style={{ 
-                width: '60px', 
-                height: '60px', 
-                backgroundColor: '#FEF3C7', 
-                borderRadius: '50%', 
-                display: 'flex', 
-                alignItems: 'center', 
-                justifyContent: 'center',
-                margin: '0 auto 16px'
-              }}>
-                <svg style={{ width: '30px', height: '30px', color: '#F5A76C' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-              </div>
-              <h2 style={{ fontSize: '24px', fontWeight: 'bold', color: '#111827', marginBottom: '6px' }}>
+             
+              <h2 style={{ fontSize: '26px', fontWeight: 'bold', color: COLORS.textPrimary, marginBottom: '6px' }}>
                 Start Your Free Trial
               </h2>
-              <p style={{ color: '#6B7280', fontSize: '14px' }}>
+              <p style={{ color: COLORS.textSecondary, fontSize: '14px' }}>
                 Get 7 days of full access to ScanED
               </p>
             </div>
 
-            <form onSubmit={(e) => { e.preventDefault(); handleTrialSubmit(); }} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {/* School ID */}
+            <form onSubmit={(e) => { e.preventDefault(); handleTrialSubmit(); }} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
               <div>
-                <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '6px', fontSize: '13px' }}>
-                  School ID <span style={{ color: '#DC2626' }}>*</span>
+                <label style={{ display: 'block', fontWeight: '600', color: COLORS.textPrimary, marginBottom: '8px', fontSize: '14px' }}>
+                  School ID <span style={{ color: COLORS.error }}>*</span>
                 </label>
                 <input
                   type="text"
@@ -782,26 +839,26 @@ export default function Home() {
                   placeholder="e.g., SCH001"
                   style={{
                     width: '100%',
-                    padding: '10px 12px',
-                    border: `2px solid ${formErrors.schoolId ? '#DC2626' : '#E5E7EB'}`,
+                    padding: '12px 14px',
+                    border: `2px solid ${formErrors.schoolId ? COLORS.error : COLORS.border}`,
                     borderRadius: '8px',
                     fontSize: '14px',
                     outline: 'none',
                     transition: 'border-color 0.2s',
-                    backgroundColor: 'white'
+                    backgroundColor: COLORS.bgDark,
+                    color: COLORS.textPrimary
                   }}
-                  onFocus={(e) => !formErrors.schoolId && (e.target.style.borderColor = '#6DCAC3')}
-                  onBlur={(e) => !formErrors.schoolId && (e.target.style.borderColor = '#E5E7EB')}
+                  onFocus={(e) => !formErrors.schoolId && (e.target.style.borderColor = COLORS.primary)}
+                  onBlur={(e) => !formErrors.schoolId && (e.target.style.borderColor = COLORS.border)}
                 />
                 {formErrors.schoolId && (
-                  <p style={{ color: '#DC2626', fontSize: '12px', marginTop: '4px' }}>{formErrors.schoolId}</p>
+                  <p style={{ color: COLORS.error, fontSize: '12px', marginTop: '6px' }}>{formErrors.schoolId}</p>
                 )}
               </div>
 
-              {/* School Name */}
               <div>
-                <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '6px', fontSize: '13px' }}>
-                  School Name <span style={{ color: '#DC2626' }}>*</span>
+                <label style={{ display: 'block', fontWeight: '600', color: COLORS.textPrimary, marginBottom: '8px', fontSize: '14px' }}>
+                  School Name <span style={{ color: COLORS.error }}>*</span>
                 </label>
                 <input
                   type="text"
@@ -810,26 +867,26 @@ export default function Home() {
                   placeholder="e.g., San Pedro High School"
                   style={{
                     width: '100%',
-                    padding: '10px 12px',
-                    border: `2px solid ${formErrors.schoolName ? '#DC2626' : '#E5E7EB'}`,
+                    padding: '12px 14px',
+                    border: `2px solid ${formErrors.schoolName ? COLORS.error : COLORS.border}`,
                     borderRadius: '8px',
                     fontSize: '14px',
                     outline: 'none',
                     transition: 'border-color 0.2s',
-                    backgroundColor: 'white'
+                    backgroundColor: COLORS.bgDark,
+                    color: COLORS.textPrimary
                   }}
-                  onFocus={(e) => !formErrors.schoolName && (e.target.style.borderColor = '#6DCAC3')}
-                  onBlur={(e) => !formErrors.schoolName && (e.target.style.borderColor = '#E5E7EB')}
+                  onFocus={(e) => !formErrors.schoolName && (e.target.style.borderColor = COLORS.primary)}
+                  onBlur={(e) => !formErrors.schoolName && (e.target.style.borderColor = COLORS.border)}
                 />
                 {formErrors.schoolName && (
-                  <p style={{ color: '#DC2626', fontSize: '12px', marginTop: '4px' }}>{formErrors.schoolName}</p>
+                  <p style={{ color: COLORS.error, fontSize: '12px', marginTop: '6px' }}>{formErrors.schoolName}</p>
                 )}
               </div>
 
-              {/* School Address */}
               <div>
-                <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '6px', fontSize: '13px' }}>
-                  School Address <span style={{ color: '#DC2626' }}>*</span>
+                <label style={{ display: 'block', fontWeight: '600', color: COLORS.textPrimary, marginBottom: '8px', fontSize: '14px' }}>
+                  School Address <span style={{ color: COLORS.error }}>*</span>
                 </label>
                 <textarea
                   value={trialForm.schoolAddress}
@@ -838,28 +895,28 @@ export default function Home() {
                   rows={2}
                   style={{
                     width: '100%',
-                    padding: '10px 12px',
-                    border: `2px solid ${formErrors.schoolAddress ? '#DC2626' : '#E5E7EB'}`,
+                    padding: '12px 14px',
+                    border: `2px solid ${formErrors.schoolAddress ? COLORS.error : COLORS.border}`,
                     borderRadius: '8px',
                     fontSize: '14px',
                     outline: 'none',
                     transition: 'border-color 0.2s',
                     resize: 'vertical',
                     fontFamily: 'inherit',
-                    backgroundColor: 'white'
+                    backgroundColor: COLORS.bgDark,
+                    color: COLORS.textPrimary
                   }}
-                  onFocus={(e) => !formErrors.schoolAddress && (e.target.style.borderColor = '#6DCAC3')}
-                  onBlur={(e) => !formErrors.schoolAddress && (e.target.style.borderColor = '#E5E7EB')}
+                  onFocus={(e) => !formErrors.schoolAddress && (e.target.style.borderColor = COLORS.primary)}
+                  onBlur={(e) => !formErrors.schoolAddress && (e.target.style.borderColor = COLORS.border)}
                 />
                 {formErrors.schoolAddress && (
-                  <p style={{ color: '#DC2626', fontSize: '12px', marginTop: '4px' }}>{formErrors.schoolAddress}</p>
+                  <p style={{ color: COLORS.error, fontSize: '12px', marginTop: '6px' }}>{formErrors.schoolAddress}</p>
                 )}
               </div>
 
-              {/* Principal Name */}
               <div>
-                <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '6px', fontSize: '13px' }}>
-                  Principal Name <span style={{ color: '#DC2626' }}>*</span>
+                <label style={{ display: 'block', fontWeight: '600', color: COLORS.textPrimary, marginBottom: '8px', fontSize: '14px' }}>
+                  Principal Name <span style={{ color: COLORS.error }}>*</span>
                 </label>
                 <input
                   type="text"
@@ -868,26 +925,26 @@ export default function Home() {
                   placeholder="e.g., Dr. Maria Santos"
                   style={{
                     width: '100%',
-                    padding: '10px 12px',
-                    border: `2px solid ${formErrors.principalName ? '#DC2626' : '#E5E7EB'}`,
+                    padding: '12px 14px',
+                    border: `2px solid ${formErrors.principalName ? COLORS.error : COLORS.border}`,
                     borderRadius: '8px',
                     fontSize: '14px',
                     outline: 'none',
                     transition: 'border-color 0.2s',
-                    backgroundColor: 'white'
+                    backgroundColor: COLORS.bgDark,
+                    color: COLORS.textPrimary
                   }}
-                  onFocus={(e) => !formErrors.principalName && (e.target.style.borderColor = '#6DCAC3')}
-                  onBlur={(e) => !formErrors.principalName && (e.target.style.borderColor = '#E5E7EB')}
+                  onFocus={(e) => !formErrors.principalName && (e.target.style.borderColor = COLORS.primary)}
+                  onBlur={(e) => !formErrors.principalName && (e.target.style.borderColor = COLORS.border)}
                 />
                 {formErrors.principalName && (
-                  <p style={{ color: '#DC2626', fontSize: '12px', marginTop: '4px' }}>{formErrors.principalName}</p>
+                  <p style={{ color: COLORS.error, fontSize: '12px', marginTop: '6px' }}>{formErrors.principalName}</p>
                 )}
               </div>
 
-              {/* Mobile Number */}
               <div>
-                <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '6px', fontSize: '13px' }}>
-                  Mobile Number <span style={{ color: '#DC2626' }}>*</span>
+                <label style={{ display: 'block', fontWeight: '600', color: COLORS.textPrimary, marginBottom: '8px', fontSize: '14px' }}>
+                  Mobile Number <span style={{ color: COLORS.error }}>*</span>
                 </label>
                 <input
                   type="tel"
@@ -896,26 +953,26 @@ export default function Home() {
                   placeholder="e.g., 09123456789"
                   style={{
                     width: '100%',
-                    padding: '10px 12px',
-                    border: `2px solid ${formErrors.mobileNumber ? '#DC2626' : '#E5E7EB'}`,
+                    padding: '12px 14px',
+                    border: `2px solid ${formErrors.mobileNumber ? COLORS.error : COLORS.border}`,
                     borderRadius: '8px',
                     fontSize: '14px',
                     outline: 'none',
                     transition: 'border-color 0.2s',
-                    backgroundColor: 'white'
+                    backgroundColor: COLORS.bgDark,
+                    color: COLORS.textPrimary
                   }}
-                  onFocus={(e) => !formErrors.mobileNumber && (e.target.style.borderColor = '#6DCAC3')}
-                  onBlur={(e) => !formErrors.mobileNumber && (e.target.style.borderColor = '#E5E7EB')}
+                  onFocus={(e) => !formErrors.mobileNumber && (e.target.style.borderColor = COLORS.primary)}
+                  onBlur={(e) => !formErrors.mobileNumber && (e.target.style.borderColor = COLORS.border)}
                 />
                 {formErrors.mobileNumber && (
-                  <p style={{ color: '#DC2626', fontSize: '12px', marginTop: '4px' }}>{formErrors.mobileNumber}</p>
+                  <p style={{ color: COLORS.error, fontSize: '12px', marginTop: '6px' }}>{formErrors.mobileNumber}</p>
                 )}
               </div>
 
-              {/* Email */}
               <div>
-                <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '6px', fontSize: '13px' }}>
-                  Email Address <span style={{ color: '#DC2626' }}>*</span>
+                <label style={{ display: 'block', fontWeight: '600', color: COLORS.textPrimary, marginBottom: '8px', fontSize: '14px' }}>
+                  Email Address <span style={{ color: COLORS.error }}>*</span>
                 </label>
                 <input
                   type="email"
@@ -924,364 +981,565 @@ export default function Home() {
                   placeholder="e.g., principal@school.edu.ph"
                   style={{
                     width: '100%',
-                    padding: '10px 12px',
-                    border: `2px solid ${formErrors.email ? '#DC2626' : '#E5E7EB'}`,
+                    padding: '12px 14px',
+                    border: `2px solid ${formErrors.email ? COLORS.error : COLORS.border}`,
                     borderRadius: '8px',
                     fontSize: '14px',
                     outline: 'none',
                     transition: 'border-color 0.2s',
-                    backgroundColor: 'white'
+                    backgroundColor: COLORS.bgDark,
+                    color: COLORS.textPrimary
                   }}
-                  onFocus={(e) => !formErrors.email && (e.target.style.borderColor = '#6DCAC3')}
-                  onBlur={(e) => !formErrors.email && (e.target.style.borderColor = '#E5E7EB')}
+                  onFocus={(e) => !formErrors.email && (e.target.style.borderColor = COLORS.primary)}
+                  onBlur={(e) => !formErrors.email && (e.target.style.borderColor = COLORS.border)}
                 />
                 {formErrors.email && (
-                  <p style={{ color: '#DC2626', fontSize: '12px', marginTop: '4px' }}>{formErrors.email}</p>
+                  <p style={{ color: COLORS.error, fontSize: '12px', marginTop: '6px' }}>{formErrors.email}</p>
                 )}
               </div>
 
               {formErrors.submit && (
                 <div style={{ 
-                  padding: '12px 16px', 
-                  backgroundColor: '#FEE2E2', 
-                  border: '2px solid #FCA5A5',
+                  padding: '14px 16px', 
+                  backgroundColor: COLORS.errorBg, 
+                  border: `2px solid ${COLORS.error}`,
                   borderRadius: '8px',
                   textAlign: 'center'
                 }}>
-                  <p style={{ color: '#DC2626', fontSize: '13px', fontWeight: '600', margin: 0 }}>
+                  <p style={{ color: COLORS.error, fontSize: '13px', fontWeight: '600', margin: 0 }}>
                     {formErrors.submit}
                   </p>
                 </div>
               )}
 
               <button
-                type="submit"
-                disabled={isSubmitting}
-                style={{
-                  width: '100%',
-                  padding: '12px',
-                  backgroundColor: '#F5A76C',
-                  opacity: isSubmitting ? 0.6 : 1,
-                  color: 'white',
-                  borderRadius: '8px',
-                  fontWeight: '700',
-                  fontSize: '14px',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.05em',
-                  border: 'none',
-                  cursor: isSubmitting ? 'not-allowed' : 'pointer',
-                  transition: 'all 0.2s',
-                  marginTop: '4px'
-                }}
-                onMouseEnter={(e) => {
-                  if (!isSubmitting) {
-                    e.currentTarget.style.backgroundColor = '#E89659';
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = '#F5A76C';
-                  e.currentTarget.style.transform = 'translateY(0)';
-                }}
-              >
-                {isSubmitting ? 'SUBMITTING...' : 'REQUEST FREE TRIAL'}
-              </button>
+  type="submit"
+  disabled={isSubmitting}
+  style={{
+    width: '100%',
+    padding: '14px',
+    backgroundColor: '#22C55E', // Emerald Green
+    opacity: isSubmitting ? 0.6 : 1,
+    color: '#FFFFFF',
+    borderRadius: '12px',
+    fontWeight: '700',
+    fontSize: '15px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.06em',
+    border: 'none',
+    cursor: isSubmitting ? 'not-allowed' : 'pointer',
+    transition: 'all 0.25s ease',
+    marginTop: '8px',
+    boxShadow: '0 6px 18px rgba(34, 197, 94, 0.35)',
+  }}
+  onMouseEnter={(e) => {
+    if (!isSubmitting) {
+      e.currentTarget.style.backgroundColor = '#16A34A'; // darker emerald
+      e.currentTarget.style.transform = 'translateY(-2px)';
+      e.currentTarget.style.boxShadow =
+        '0 10px 26px rgba(34, 197, 94, 0.5)';
+    }
+  }}
+  onMouseLeave={(e) => {
+    e.currentTarget.style.backgroundColor = '#22C55E';
+    e.currentTarget.style.transform = 'translateY(0)';
+    e.currentTarget.style.boxShadow =
+      '0 6px 18px rgba(34, 197, 94, 0.35)';
+  }}
+>
+  {isSubmitting ? 'SUBMITTING...' : 'REQUEST FREE TRIAL'}
+</button>
+
             </form>
           </div>
         </div>,
         document.body
       )}
 
-      {/* Success Modal - Contact Administrator */}
-      {typeof window !== 'undefined' && mounted && showSuccessModal && createPortal(
-        <div 
+      {/* SUCCESS MODAL */}
+{typeof window !== 'undefined' && mounted && showSuccessModal && createPortal(
+  <div
+    style={{
+      position: 'fixed',
+      inset: 0,
+      zIndex: 999999,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'transparent' // ✅ WALANG BACKGROUND
+    }}
+    onClick={() => setShowSuccessModal(false)}
+  >
+    <div
+      style={{
+        backgroundColor: '#FFFFFF',
+        borderRadius: '24px',
+        padding: isMobile ? '36px 24px' : '48px',
+        maxWidth: '520px',
+        width: '100%',
+        margin: '16px',
+        textAlign: 'center',
+        boxShadow: '0 30px 60px rgba(0, 0, 0, 0.15)', // floating lang
+        border: '1px solid rgba(0, 0, 0, 0.08)'
+      }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {/* ICON */}
+      <div
+        style={{
+          width: '90px',
+          height: '90px',
+          backgroundColor: 'rgba(34, 197, 94, 0.15)',
+          borderRadius: '50%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          margin: '0 auto 24px'
+        }}
+      >
+        <svg
+          style={{ width: '44px', height: '44px', color: '#22C55E' }}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          strokeWidth="3"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M5 13l4 4L19 7"
+          />
+        </svg>
+      </div>
+
+      {/* TITLE */}
+      <h2
+        style={{
+          fontSize: '28px',
+          fontWeight: '800',
+          color: '#0F172A',
+          marginBottom: '10px'
+        }}
+      >
+        Request Submitted
+      </h2>
+
+      {/* DESCRIPTION */}
+      <p
+        style={{
+          fontSize: '16px',
+          color: '#475569',
+          lineHeight: '1.65',
+          marginBottom: '28px'
+        }}
+      >
+        Thank you for your interest in ScanED. Our administrator will contact
+        you shortly to help you activate your free trial.
+      </p>
+
+      {/* CONTACT INFO */}
+      <div
+        style={{
+          marginBottom: '28px',
+          padding: '18px',
+          backgroundColor: '#F0FDF4',
+          borderRadius: '14px',
+          border: '1px solid rgba(34, 197, 94, 0.3)'
+        }}
+      >
+        <p
           style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            zIndex: 999999,
+            fontSize: '14px',
+            color: '#166534',
+            marginBottom: '8px',
+            fontWeight: '600'
+          }}
+        >
+          We will contact you using:
+        </p>
+
+        <p
+          style={{
+            fontSize: '14px',
+            color: '#166534',
+            lineHeight: '1.8'
+          }}
+        >
+          Mobile: <strong>{submittedData.mobileNumber}</strong><br />
+          Email: <strong>{submittedData.email}</strong>
+        </p>
+      </div>
+
+      {/* CTA BUTTON — SAME AS FREE TRIAL */}
+      <button
+        onClick={() => setShowSuccessModal(false)}
+        style={{
+          width: '100%',
+          padding: '16px',
+          backgroundColor: '#22C55E',
+          color: '#FFFFFF',
+          borderRadius: '14px',
+          fontWeight: '700',
+          fontSize: '16px',
+          border: 'none',
+          cursor: 'pointer',
+          transition: 'all 0.25s ease',
+          textTransform: 'uppercase',
+          letterSpacing: '0.06em',
+          boxShadow: '0 12px 30px rgba(34, 197, 94, 0.45)'
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.backgroundColor = '#16A34A'
+          e.currentTarget.style.transform = 'translateY(-2px)'
+          e.currentTarget.style.boxShadow =
+            '0 16px 36px rgba(34, 197, 94, 0.6)'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.backgroundColor = '#22C55E'
+          e.currentTarget.style.transform = 'translateY(0)'
+          e.currentTarget.style.boxShadow =
+            '0 12px 30px rgba(34, 197, 94, 0.45)'
+        }}
+      >
+        Got it
+      </button>
+    </div>
+  </div>,
+  document.body
+)}
+{/* SUCCESS MODAL */}
+{typeof window !== 'undefined' && mounted && showSuccessModal && createPortal(
+  <div
+    style={{
+      position: 'fixed',
+      inset: 0,
+      zIndex: 999999,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(15, 23, 42, 0.85)', // ✅ DARK BLUE SMOKE
+      backdropFilter: 'blur(6px)',
+      WebkitBackdropFilter: 'blur(6px)'
+    }}
+    onClick={() => setShowSuccessModal(false)}
+  >
+    <div
+      style={{
+        backgroundColor: '#0F172A', // ✅ DARK BLUE CARD (NOT WHITE)
+        borderRadius: '24px',
+        padding: isMobile ? '36px 24px' : '48px',
+        maxWidth: '520px',
+        width: '100%',
+        margin: '16px',
+        textAlign: 'center',
+        boxShadow: '0 40px 80px rgba(0, 0, 0, 0.6)',
+        border: '1px solid rgba(34, 197, 94, 0.25)'
+      }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {/* ICON */}
+      <div
+        style={{
+          width: '90px',
+          height: '90px',
+          backgroundColor: 'rgba(34, 197, 94, 0.18)',
+          borderRadius: '50%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          margin: '0 auto 24px',
+          boxShadow: '0 0 0 10px rgba(34, 197, 94, 0.05)'
+        }}
+      >
+        <svg
+          style={{ width: '44px', height: '44px', color: '#22C55E' }}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          strokeWidth="3"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M5 13l4 4L19 7"
+          />
+        </svg>
+      </div>
+
+      {/* TITLE */}
+      <h2
+        style={{
+          fontSize: '28px',
+          fontWeight: '800',
+          color: '#E5E7EB',
+          marginBottom: '10px'
+        }}
+      >
+        Request Submitted
+      </h2>
+
+      {/* DESCRIPTION */}
+      <p
+        style={{
+          fontSize: '16px',
+          color: '#CBD5E1',
+          lineHeight: '1.65',
+          marginBottom: '28px'
+        }}
+      >
+        Thank you for your interest in ScanED. Our administrator will contact
+        you shortly to assist you in activating your free trial.
+      </p>
+
+      {/* CONTACT INFO */}
+      <div
+        style={{
+          marginBottom: '28px',
+          padding: '18px',
+          backgroundColor: 'rgba(34, 197, 94, 0.08)',
+          borderRadius: '14px',
+          border: '1px solid rgba(34, 197, 94, 0.35)'
+        }}
+      >
+        <p
+          style={{
+            fontSize: '14px',
+            color: '#86EFAC',
+            marginBottom: '8px',
+            fontWeight: '600'
+          }}
+        >
+          We will contact you using:
+        </p>
+
+        <p
+          style={{
+            fontSize: '14px',
+            color: '#D1FAE5',
+            lineHeight: '1.8'
+          }}
+        >
+          Mobile: <strong>{submittedData.mobileNumber}</strong><br />
+          Email: <strong>{submittedData.email}</strong>
+        </p>
+      </div>
+
+      {/* CTA BUTTON — SAME AS START FREE TRIAL */}
+      <button
+        onClick={() => setShowSuccessModal(false)}
+        style={{
+          width: '100%',
+          padding: '16px',
+          backgroundColor: '#22C55E',
+          color: '#FFFFFF',
+          borderRadius: '14px',
+          fontWeight: '700',
+          fontSize: '16px',
+          border: 'none',
+          cursor: 'pointer',
+          transition: 'all 0.25s ease',
+          textTransform: 'uppercase',
+          letterSpacing: '0.06em',
+          boxShadow: '0 14px 36px rgba(34, 197, 94, 0.55)'
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.backgroundColor = '#16A34A'
+          e.currentTarget.style.transform = 'translateY(-2px)'
+          e.currentTarget.style.boxShadow =
+            '0 18px 44px rgba(34, 197, 94, 0.7)'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.backgroundColor = '#22C55E'
+          e.currentTarget.style.transform = 'translateY(0)'
+          e.currentTarget.style.boxShadow =
+            '0 14px 36px rgba(34, 197, 94, 0.55)'
+        }}
+      >
+        Got it
+      </button>
+    </div>
+  </div>,
+  document.body
+)}
+
+{/* CONTACT MODAL - WITH SVG ICONS */}
+{typeof window !== 'undefined' && mounted && showContactModal && createPortal(
+  <div 
+    onClick={() => setShowContactModal(false)} 
+    style={{ 
+      position: 'fixed', 
+      top: 0, 
+      left: 0, 
+      right: 0, 
+      bottom: 0, 
+      zIndex: 999999, 
+      display: 'flex', 
+      alignItems: 'center', 
+      justifyContent: 'center', 
+      backgroundColor: 'rgba(0,0,0,0.8)',
+      backdropFilter: 'blur(8px)'
+    }}
+  >
+    <div 
+      onClick={(e) => e.stopPropagation()} 
+      style={{ 
+        backgroundColor: COLORS.bgCard, 
+        borderRadius: '24px', 
+        padding: '40px', 
+        maxWidth: '420px', 
+        width: '100%', 
+        margin: '16px', 
+        position: 'relative', 
+        border: `1px solid ${COLORS.border}` 
+      }}
+    >
+      <button
+        onClick={() => setShowContactModal(false)}
+        style={{
+          position: 'absolute',
+          top: '20px',
+          right: '20px',
+          color: COLORS.textMuted,
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          padding: '4px',
+          fontSize: '24px'
+        }}
+      >
+        ×
+      </button>
+
+      <h2 style={{ 
+        fontSize: '28px', 
+        fontWeight: 'bold', 
+        color: COLORS.textPrimary, 
+        textAlign: 'center', 
+        marginBottom: '32px' 
+      }}>
+        Contact Us
+      </h2>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        
+        {/* PHONE */}
+        <a 
+          href="tel:+639267995647" 
+          style={{ 
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: 'rgba(0, 0, 0, 0.7)',
-            backdropFilter: 'blur(8px)',
-            WebkitBackdropFilter: 'blur(8px)'
+            gap: '12px',
+            padding: '20px', 
+            backgroundColor: COLORS.bgDark, 
+            borderRadius: '12px', 
+            textDecoration: 'none', 
+            color: COLORS.textPrimary, 
+            border: `1px solid ${COLORS.border}`,
+            transition: 'all 0.2s'
           }}
-          onClick={() => setShowSuccessModal(false)}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = COLORS.bgCardHover;
+            e.currentTarget.style.borderColor = COLORS.primary;
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = COLORS.bgDark;
+            e.currentTarget.style.borderColor = COLORS.border;
+          }}
         >
-          <div 
-            style={{
-              backgroundColor: 'white',
-              borderRadius: '24px',
-              padding: isMobile ? '40px 24px' : '48px',
-              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
-              maxWidth: '500px',
-              width: '100%',
-              margin: '16px',
-              position: 'relative',
-              textAlign: 'center'
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Success Icon */}
-            <div style={{ 
-              width: '100px', 
-              height: '100px', 
-              backgroundColor: '#D1FAE5', 
-              borderRadius: '50%', 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'center',
-              margin: '0 auto 24px'
-            }}>
-              <svg style={{ width: '50px', height: '50px', color: '#10B981' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
-
-            <h2 style={{ fontSize: '32px', fontWeight: 'bold', color: '#111827', marginBottom: '16px' }}>
-              Request Submitted! 🎉
-            </h2>
-
-            <p style={{ color: '#6B7280', fontSize: '18px', lineHeight: '1.6', marginBottom: '32px' }}>
-              Thank you for your interest in ScanED! Our administrator will contact you shortly to set up your free trial.
-            </p>
-
-            <div style={{ 
-              marginBottom: '32px', 
-              padding: '20px', 
-              backgroundColor: '#FEF3C7', 
-              borderRadius: '12px',
-              border: '2px solid #FDE68A'
-            }}>
-              <p style={{ fontSize: '15px', color: '#92400E', lineHeight: '1.6', marginBottom: '12px' }}>
-                <strong>📞 We'll reach out to you via:</strong>
-              </p>
-              <p style={{ fontSize: '14px', color: '#92400E', lineHeight: '1.5' }}>
-                • Mobile: {submittedData.mobileNumber}<br/>
-                • Email: {submittedData.email}
-              </p>
-            </div>
-
-            <button
-              onClick={() => setShowSuccessModal(false)}
-              style={{
-                width: '100%',
-                padding: '16px',
-                backgroundColor: '#6DCAC3',
-                color: 'white',
-                borderRadius: '12px',
-                fontWeight: '700',
-                fontSize: '16px',
-                border: 'none',
-                cursor: 'pointer',
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = '#5AB9B3';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = '#6DCAC3';
-                e.currentTarget.style.transform = 'translateY(0)';
-              }}
-            >
-              GOT IT!
-            </button>
+          {/* PHONE SVG */}
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
+            <path d="M11 1a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1zM5 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2z"/>
+            <path d="M8 14a1 1 0 1 0 0-2 1 1 0 0 0 0 2"/>
+          </svg>
+          <div>
+            <div style={{ fontWeight: '600', fontSize: '16px' }}>Mobile</div>
+            <div style={{ fontSize: '14px', color: COLORS.textSecondary }}>+63 926 799 5647</div>
           </div>
-        </div>,
-        document.body
-      )}
+        </a>
 
-      {/* Contact Modal */}
-      {typeof window !== 'undefined' && mounted && showContactModal && createPortal(
-        <div 
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            zIndex: 999999,
+        {/* EMAIL */}
+        <a 
+          href="mailto:dmcgsolutions0314@gmail.com" 
+          style={{ 
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: 'rgba(0, 0, 0, 0.7)',
-            backdropFilter: 'blur(8px)',
-            WebkitBackdropFilter: 'blur(8px)'
+            gap: '12px',
+            padding: '20px', 
+            backgroundColor: COLORS.bgDark, 
+            borderRadius: '12px', 
+            textDecoration: 'none', 
+            color: COLORS.textPrimary, 
+            border: `1px solid ${COLORS.border}`,
+            transition: 'all 0.2s'
           }}
-          onClick={() => setShowContactModal(false)}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = COLORS.bgCardHover;
+            e.currentTarget.style.borderColor = COLORS.primary;
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = COLORS.bgDark;
+            e.currentTarget.style.borderColor = COLORS.border;
+          }}
         >
-          <div 
-            style={{
-              backgroundColor: 'white',
-              borderRadius: '24px',
-              padding: '40px',
-              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
-              maxWidth: '400px',
-              width: '100%',
-              margin: '16px',
-              position: 'relative'
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              onClick={() => setShowContactModal(false)}
-              style={{
-                position: 'absolute',
-                top: '20px',
-                right: '20px',
-                color: '#9CA3AF',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                padding: '4px'
-              }}
-            >
-              <svg style={{ width: '24px', height: '24px' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-
-            <h2 style={{ fontSize: '28px', fontWeight: 'bold', color: '#111827', textAlign: 'center', marginBottom: '24px' }}>
-              Contact Us
-            </h2>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <a
-                href="https://m.me/YOUR_PAGE_ID"
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '16px',
-                  padding: '16px',
-                  backgroundColor: '#F3F4F6',
-                  borderRadius: '12px',
-                  textDecoration: 'none',
-                  color: '#111827',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#E5E7EB';
-                  e.currentTarget.style.transform = 'translateX(4px)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = '#F3F4F6';
-                  e.currentTarget.style.transform = 'translateX(0)';
-                }}
-              >
-                <div style={{ 
-                  width: '48px', 
-                  height: '48px', 
-                  backgroundColor: '#0084FF', 
-                  borderRadius: '50%', 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  justifyContent: 'center',
-                  flexShrink: 0
-                }}>
-                  <svg style={{ width: '24px', height: '24px', color: 'white' }} fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 2C6.477 2 2 6.145 2 11.243c0 2.912 1.448 5.51 3.717 7.224V22l3.371-1.85c.9.25 1.853.387 2.839.387 5.523 0 10-4.145 10-9.243S17.523 2 12 2zm.993 12.464l-2.549-2.72-4.977 2.72 5.475-5.808 2.611 2.72 4.915-2.72-5.475 5.808z"/>
-                  </svg>
-                </div>
-                <div>
-                  <div style={{ fontWeight: '600', marginBottom: '4px' }}>Messenger</div>
-                  <div style={{ fontSize: '14px', color: '#6B7280' }}>Chat with us</div>
-                </div>
-              </a>
-
-              <a
-                href="tel:+639267995647"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '16px',
-                  padding: '16px',
-                  backgroundColor: '#F3F4F6',
-                  borderRadius: '12px',
-                  textDecoration: 'none',
-                  color: '#111827',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#E5E7EB';
-                  e.currentTarget.style.transform = 'translateX(4px)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = '#F3F4F6';
-                  e.currentTarget.style.transform = 'translateX(0)';
-                }}
-              >
-                <div style={{ 
-                  width: '48px', 
-                  height: '48px', 
-                  backgroundColor: '#10B981', 
-                  borderRadius: '50%', 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  justifyContent: 'center',
-                  flexShrink: 0
-                }}>
-                  <svg style={{ width: '24px', height: '24px', color: 'white' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                  </svg>
-                </div>
-                <div>
-                  <div style={{ fontWeight: '600', marginBottom: '4px' }}>Mobile</div>
-                  <div style={{ fontSize: '14px', color: '#6B7280' }}>+63 926 799 5647</div>
-                </div>
-              </a>
-
-              <a
-                href="mailto:dmcgsolutions0314@gmail.com"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '16px',
-                  padding: '16px',
-                  backgroundColor: '#F3F4F6',
-                  borderRadius: '12px',
-                  textDecoration: 'none',
-                  color: '#111827',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#E5E7EB';
-                  e.currentTarget.style.transform = 'translateX(4px)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = '#F3F4F6';
-                  e.currentTarget.style.transform = 'translateX(0)';
-                }}
-              >
-                <div style={{ 
-                  width: '48px', 
-                  height: '48px', 
-                  backgroundColor: '#6DCAC3', 
-                  borderRadius: '50%', 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  justifyContent: 'center',
-                  flexShrink: 0
-                }}>
-                  <svg style={{ width: '24px', height: '24px', color: 'white' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                  </svg>
-                </div>
-                <div>
-                  <div style={{ fontWeight: '600', marginBottom: '4px' }}>Email</div>
-                  <div style={{ fontSize: '14px', color: '#6B7280' }}>dmcgsolutions0314@gmail.com</div>
-                </div>
-              </a>
-            </div>
+          {/* EMAIL SVG */}
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" width="24" height="24" color="#3B82F6">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l9 6 9-6M3 8v10a2 2 0 002 2h14a2 2 0 0 0 2-2V8M3 8h18"/>
+          </svg>
+          <div>
+            <div style={{ fontWeight: '600', fontSize: '16px' }}>Email</div>
+            <div style={{ fontSize: '14px', color: COLORS.textSecondary }}>dmcgsolutions0314@gmail.com</div>
           </div>
-        </div>,
-        document.body
-      )}
+        </a>
+
+        {/* MESSENGER */}
+        <a 
+          href="https://m.me/scanedph" 
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ 
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            padding: '20px', 
+            backgroundColor: COLORS.bgDark, 
+            borderRadius: '12px', 
+            textDecoration: 'none', 
+            color: COLORS.textPrimary, 
+            border: `1px solid ${COLORS.border}`,
+            transition: 'all 0.2s'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = COLORS.bgCardHover;
+            e.currentTarget.style.borderColor = '#1877F2';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = COLORS.bgDark;
+            e.currentTarget.style.borderColor = COLORS.border;
+          }}
+        >
+          {/* MESSENGER SVG */}
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="#1877F2">
+            <path d="M12 2C6.477 2 2 6.011 2 11.084c0 2.762 1.175 5.258 3.071 7.045V22l3.193-1.751A10.055 10.055 0 0012 21c5.523 0 10-4.011 10-8.916S17.523 2 12 2zm1.624 12.058l-2.527-2.704-5.48 2.704 6.174-6.974 2.527 2.704 5.48-2.704-6.174 6.974z"/>
+          </svg>
+          <div>
+            <div style={{ fontWeight: '600', fontSize: '16px' }}>Messenger</div>
+            <div style={{ fontSize: '14px', color: COLORS.textSecondary }}>Chat with us on Facebook</div>
+          </div>
+        </a>
+
+      </div>
+    </div>
+  </div>,
+  document.body
+)}
+
+     
+      <style jsx global>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0; }
+        }
+      `}</style>
     </>
   );
 }
