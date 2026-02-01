@@ -2,11 +2,12 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import Image from 'next/image';
+import dynamic from 'next/dynamic';
 
 const COLORS = {
   primary: '#249E94',
@@ -28,7 +29,39 @@ interface School {
   address: string;
   schoolId: string;
   createdAt: string;
+  latitude: number;
+  longitude: number;
+  contactNumber?: string;
+  principal?: string;
 }
+
+// Import MapComponent dynamically to avoid SSR issues
+const MapComponent = dynamic(() => import('./MapComponent'), { 
+  ssr: false,
+  loading: () => (
+    <div style={{ 
+      width: '100%', 
+      height: '100%',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: COLORS.bgDark
+    }}>
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ 
+          width: '60px', 
+          height: '60px', 
+          border: `4px solid ${COLORS.border}`,
+          borderTop: `4px solid ${COLORS.primary}`,
+          borderRadius: '50%',
+          margin: '0 auto 20px',
+          animation: 'spin 1s linear infinite'
+        }}></div>
+        <p style={{ fontSize: '16px', color: COLORS.textSecondary }}>Loading map...</p>
+      </div>
+    </div>
+  )
+});
 
 export default function Subscribers() {
   const router = useRouter();
@@ -41,6 +74,7 @@ export default function Subscribers() {
   const [pin, setPin] = useState(['', '', '', '', '', '']);
   const [isVerifying, setIsVerifying] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [selectedSchool, setSelectedSchool] = useState<School | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -92,14 +126,21 @@ export default function Subscribers() {
           }
         }
         
-        schoolsData.push({
-          id: doc.id,
-          schoolName: data.schoolName || 'Unknown School',
-          logo: logoPath,
-          address: data.address || 'Address not provided',
-          schoolId: data.schoolId || doc.id,
-          createdAt: data.createdAt ? formatDate(data.createdAt) : 'N/A'
-        });
+        // Only add schools that have coordinates
+        if (data.latitude && data.longitude) {
+          schoolsData.push({
+            id: doc.id,
+            schoolName: data.schoolName || 'Unknown School',
+            logo: logoPath,
+            address: data.address || 'Address not provided',
+            schoolId: data.schoolId || doc.id,
+            createdAt: data.createdAt ? formatDate(data.createdAt) : 'N/A',
+            latitude: data.latitude,
+            longitude: data.longitude,
+            contactNumber: data.contactNumber || '',
+            principal: data.principal || ''
+          });
+        }
       });
 
       schoolsData.sort((a, b) => a.schoolName.localeCompare(b.schoolName));
@@ -204,7 +245,7 @@ export default function Subscribers() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', background: COLORS.bgDark }}>
+    <div style={{ minHeight: '100vh', background: '#0F172A' }}>
       {/* HEADER */}
       <header style={{ backgroundColor: COLORS.bgCard, boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.3)', borderBottom: `1px solid ${COLORS.border}` }}>
         <div style={{ maxWidth: '1280px', margin: '0 auto', padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -370,14 +411,14 @@ export default function Subscribers() {
         )}
       </header>
 
-      {/* MAIN CONTENT */}
-      <main style={{ maxWidth: '1400px', margin: '0 auto', padding: isMobile ? '32px 16px' : '60px 24px' }}>
-        <div style={{ textAlign: 'center', marginBottom: '48px' }}>
-          <h1 style={{ fontSize: isMobile ? '32px' : '42px', fontWeight: '800', color: COLORS.textPrimary, marginBottom: '12px', letterSpacing: '-0.02em' }}>
+      {/* MAIN CONTENT - FULL SCREEN MAP */}
+      <main style={{ width: '100%', padding: 0 }}>
+        <div style={{ textAlign: 'center', padding: isMobile ? '24px 16px' : '40px 24px', backgroundColor: COLORS.bgDark }}>
+          <h1 style={{ fontSize: isMobile ? '28px' : '38px', fontWeight: '800', color: COLORS.textPrimary, marginBottom: '8px', letterSpacing: '-0.02em' }}>
             Our <span style={{ color: COLORS.primary }}>Subscribers</span> Nationwide
           </h1>
-          <p style={{ fontSize: '16px', color: COLORS.textSecondary, maxWidth: '600px', margin: '0 auto' }}>
-            Trusted by leading educational institutions across the Philippines
+          <p style={{ fontSize: '15px', color: COLORS.textPrimary, fontWeight: '700' }}>
+            {subscribers.length} educational institution{subscribers.length !== 1 ? 's' : ''} across the Philippines
           </p>
         </div>
 
@@ -385,9 +426,12 @@ export default function Subscribers() {
           <div style={{ 
             textAlign: 'center', 
             padding: '60px 20px',
-            backgroundColor: COLORS.bgCard,
-            borderRadius: '16px',
-            border: `1px solid ${COLORS.border}`
+            backgroundColor: COLORS.bgDark,
+            minHeight: '600px',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center'
           }}>
             <div style={{ 
               width: '60px', 
@@ -398,7 +442,7 @@ export default function Subscribers() {
               margin: '0 auto 20px',
               animation: 'spin 1s linear infinite'
             }}></div>
-            <p style={{ fontSize: '16px', color: COLORS.textSecondary }}>Loading subscribers...</p>
+            <p style={{ fontSize: '16px', color: COLORS.textSecondary }}>Loading map...</p>
             <style dangerouslySetInnerHTML={{__html: `
               @keyframes spin {
                 0% { transform: rotate(0deg); }
@@ -406,157 +450,21 @@ export default function Subscribers() {
               }
             `}}/>
           </div>
-        ) : subscribers.length > 0 ? (
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', 
-            gap: '24px' 
-          }}>
-            {subscribers.map((school) => (
-              <div
-                key={school.id}
-                style={{
-                  backgroundColor: COLORS.bgCard,
-                  border: `1px solid ${COLORS.border}`,
-                  borderRadius: '16px',
-                  padding: '28px',
-                  transition: 'all 0.3s ease',
-                  cursor: 'default'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.boxShadow = '0 12px 24px rgba(0, 0, 0, 0.3)';
-                  e.currentTarget.style.transform = 'translateY(-4px)';
-                  e.currentTarget.style.borderColor = COLORS.primary;
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.boxShadow = 'none';
-                  e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.borderColor = COLORS.border;
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '20px', paddingBottom: '20px', borderBottom: `1px solid ${COLORS.border}` }}>
-                  <div style={{
-                    width: '64px',
-                    height: '64px',
-                    borderRadius: '12px',
-                    backgroundColor: COLORS.bgDark,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                    border: `2px solid ${COLORS.border}`
-                  }}>
-                    <img 
-                      src={school.logo || '/logo.png'} 
-                      alt={`${school.schoolName} Logo`}
-                      style={{ width: '48px', height: '48px', objectFit: 'contain' }}
-                    />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <h3 style={{ 
-                      fontSize: '18px', 
-                      fontWeight: '700', 
-                      color: COLORS.textPrimary, 
-                      margin: 0,
-                      lineHeight: '1.3'
-                    }}>
-                      {school.schoolName}
-                    </h3>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                  <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-                    <div style={{ 
-                      width: '32px', 
-                      height: '32px', 
-                      backgroundColor: 'rgba(36, 158, 148, 0.1)', 
-                      borderRadius: '8px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0
-                    }}>
-                      <svg style={{ width: '16px', height: '16px', color: COLORS.primary }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '11px', fontWeight: '600', color: COLORS.textMuted, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>
-                        Address
-                      </div>
-                      <div style={{ fontSize: '14px', color: COLORS.textSecondary, lineHeight: '1.5' }}>
-                        {school.address}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-                    <div style={{ 
-                      width: '32px', 
-                      height: '32px', 
-                      backgroundColor: 'rgba(245, 158, 11, 0.1)', 
-                      borderRadius: '8px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0
-                    }}>
-                      <svg style={{ width: '16px', height: '16px', color: '#F59E0B' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                      </svg>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '11px', fontWeight: '600', color: COLORS.textMuted, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>
-                        School ID
-                      </div>
-                      <div style={{ fontSize: '14px', color: COLORS.textSecondary, fontFamily: 'monospace', fontWeight: '500' }}>
-                        {school.schoolId}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-                    <div style={{ 
-                      width: '32px', 
-                      height: '32px', 
-                      backgroundColor: 'rgba(59, 130, 246, 0.1)', 
-                      borderRadius: '8px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0
-                    }}>
-                      <svg style={{ width: '16px', height: '16px', color: '#3B82F6' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '11px', fontWeight: '600', color: COLORS.textMuted, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>
-                        Date Started
-                      </div>
-                      <div style={{ fontSize: '14px', color: COLORS.textSecondary, fontWeight: '500' }}>
-                        {school.createdAt}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
+        ) : subscribers.length === 0 ? (
           <div style={{ 
             textAlign: 'center', 
-            padding: '60px 20px',
-            backgroundColor: COLORS.bgCard,
-            borderRadius: '16px',
-            border: `1px solid ${COLORS.border}`
+            padding: '80px 20px',
+            backgroundColor: COLORS.bgDark,
+            minHeight: '600px',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center'
           }}>
             <div style={{ 
               width: '80px', 
               height: '80px', 
-              backgroundColor: COLORS.bgDark, 
+              backgroundColor: COLORS.bgCard, 
               borderRadius: '50%',
               margin: '0 auto 20px',
               display: 'flex',
@@ -564,15 +472,28 @@ export default function Subscribers() {
               justifyContent: 'center'
             }}>
               <svg style={{ width: '40px', height: '40px', color: COLORS.textMuted }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
               </svg>
             </div>
             <h3 style={{ fontSize: '20px', fontWeight: '700', color: COLORS.textPrimary, marginBottom: '8px' }}>
-              No Subscribers Yet
+              No Subscribers with Coordinates Yet
             </h3>
-            <p style={{ fontSize: '14px', color: COLORS.textSecondary }}>
-              Check back soon for our growing list of partner schools
+            <p style={{ fontSize: '14px', color: COLORS.textSecondary, maxWidth: '400px' }}>
+              Add latitude and longitude coordinates to your schools in Firebase to display them on the map.
             </p>
+          </div>
+        ) : (
+          <div style={{
+            height: isMobile ? '500px' : '700px',
+            width: '100%',
+            position: 'relative'
+          }}>
+            {mounted && <MapComponent 
+              schools={subscribers} 
+              selectedSchool={selectedSchool}
+              onSelectSchool={setSelectedSchool}
+              isMobile={isMobile}
+            />}
           </div>
         )}
       </main>
