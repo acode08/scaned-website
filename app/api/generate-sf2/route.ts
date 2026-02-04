@@ -1,3 +1,4 @@
+// app/api/generate-sf2/route.ts - COMPLETE FIX (All Vertical Except Auto Numbers)
 import { NextRequest, NextResponse } from 'next/server';
 import ExcelJS from 'exceljs';
 import * as path from 'path';
@@ -16,7 +17,7 @@ export async function POST(request: NextRequest) {
       daysInMonth,
     } = data;
 
-    const templatePath = path.join(process.cwd(), 'public', 'templates', 'SF2_Template.xlsx');
+    const templatePath = path.join(process.cwd(), 'public', 'templates', 'SF2_TEMPLATE.xlsx');
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(templatePath);
     const worksheet = workbook.getWorksheet(1);
@@ -25,12 +26,34 @@ export async function POST(request: NextRequest) {
       throw new Error('Template worksheet not found');
     }
 
-    // Calculate weekdays only
+    console.log('📋 SF2 Generation - COMPLETE VERTICAL FIX');
+    console.log(`   Students: ${students.length}`);
+
+    const maleStudents = students.filter((s: any) => s.gender === 'MALE');
+    const femaleStudents = students.filter((s: any) => s.gender === 'FEMALE');
+
+    console.log(`   Males: ${maleStudents.length}, Females: ${femaleStudents.length}`);
+
+    // ✅ FILL BASIC INFO
+    worksheet.getCell('C6').value = schoolId;
+    worksheet.getCell('K6').value = schoolYear;
+    worksheet.getCell('X6').value = month;
+    worksheet.getCell('C8').value = schoolName;
+    worksheet.getCell('X8').value = gradeLevel;
+    worksheet.getCell('AC8').value = section;
+
+    // Calculate weekdays
     const year = parseInt(schoolYear.split('-')[1]);
-    const monthIndex = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].indexOf(month);
+    const monthIndex = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ].indexOf(month);
+    
     const weekdays = [];
     for (let day = 1; day <= daysInMonth; day++) {
-      const dayOfWeek = new Date(year, monthIndex, day).getDay();
+      const date = new Date(year, monthIndex, day);
+      const dayOfWeek = date.getDay();
+      
       if (dayOfWeek >= 1 && dayOfWeek <= 5) {
         let label = '';
         if (dayOfWeek === 1) label = 'M';
@@ -41,263 +64,344 @@ export async function POST(request: NextRequest) {
         weekdays.push({ day, label });
       }
     }
+
     const numWeekdays = weekdays.length;
+    console.log(`📅 Weekdays: ${numWeekdays}`);
 
-    // Fill in school information
-    worksheet.getCell('C6').value = schoolId;
-    worksheet.getCell('K6').value = schoolYear;
-    worksheet.getCell('X6').value = month;
-    worksheet.getCell('C8').value = schoolName;
-    worksheet.getCell('X8').value = gradeLevel;
-    worksheet.getCell('AC8').value = section;
+    const firstDayCol = 4;
+    const absentCol = 29;
 
-    const firstDayCol = 4; // Column D
+    // Helper function to get column letter
+    const getColumnLetter = (col: number): string => {
+      let letter = '';
+      while (col > 0) {
+        const remainder = (col - 1) % 26;
+        letter = String.fromCharCode(65 + remainder) + letter;
+        col = Math.floor((col - 1) / 26);
+      }
+      return letter;
+    };
+
+    // 🎯 STEP 1: CLEAR AND RESET ALL CELLS
+    console.log('🔧 Step 1: Clearing all cells...');
     
-    // Clear ALL columns from D to AJ (4 to 36) for date/day rows
-    for (let col = 4; col <= 36; col++) {
-      worksheet.getCell(11, col).value = null;
-      worksheet.getCell(12, col).value = null;
+    // Clear column A (auto numbers) - rows 14 to 94 - UPRIGHT (0 degrees)
+    for (let row = 14; row <= 94; row++) {
+      const cell = worksheet.getCell(row, 1);
+      const existingStyle = cell.style || {};
+      cell.value = null;
+      cell.style = {
+        ...existingStyle,
+        alignment: {
+          horizontal: 'center',
+          vertical: 'middle',
+          textRotation: 0,  // UPRIGHT for auto numbers
+          wrapText: false
+        }
+      };
     }
 
-    // Fill weekdays starting at column D (4)
+    // Clear attendance area (remove dotted slashes)
+    for (let row = 14; row <= 94; row++) {
+      for (let col = firstDayCol; col < firstDayCol + 25; col++) {
+        const cell = worksheet.getCell(row, col);
+        cell.value = null;
+        const existingStyle = cell.style || {};
+        cell.style = {
+          ...existingStyle,
+          alignment: {
+            horizontal: 'center',
+            vertical: 'middle'
+          }
+        };
+      }
+    }
+
+    // Clear day numbers (row 11) - VERTICAL (90 degrees)
+    for (let col = firstDayCol; col < firstDayCol + 25; col++) {
+      const cell = worksheet.getCell(11, col);
+      cell.value = null;
+      const existingStyle = cell.style || {};
+      cell.style = {
+        ...existingStyle,
+        alignment: {
+          horizontal: 'center',
+          vertical: 'middle',
+          textRotation: 90  // VERTICAL for dates
+        }
+      };
+    }
+
+    // Clear day labels (row 12) - VERTICAL (90 degrees)
+    for (let col = firstDayCol; col < firstDayCol + 25; col++) {
+      const cell = worksheet.getCell(12, col);
+      cell.value = null;
+      const existingStyle = cell.style || {};
+      cell.style = {
+        ...existingStyle,
+        alignment: {
+          horizontal: 'center',
+          vertical: 'middle',
+          textRotation: 90  // VERTICAL for day labels
+        }
+      };
+    }
+
+    // 🎯 STEP 2: FILL DAY NUMBERS AND LABELS (VERTICAL - 90 degrees)
+    console.log('📅 Step 2: Filling dates and day labels (VERTICAL)...');
     for (let i = 0; i < numWeekdays; i++) {
       const col = firstDayCol + i;
       
-      const dateCell = worksheet.getCell(11, col);
-      dateCell.value = weekdays[i].day;
-      dateCell.font = { bold: true, size: 10 };
-      dateCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      // Day number - VERTICAL
+      const dayCell = worksheet.getCell(11, col);
+      dayCell.value = weekdays[i].day;
+      const dayStyle = dayCell.style || {};
+      dayCell.style = {
+        ...dayStyle,
+        alignment: {
+          horizontal: 'center',
+          vertical: 'middle',
+          textRotation: 90  // 🎯 VERTICAL!
+        }
+      };
       
-      const dayCell = worksheet.getCell(12, col);
-      dayCell.value = weekdays[i].label;
-      dayCell.font = { bold: true, size: 11 };
-      dayCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      // Day label - VERTICAL
+      const labelCell = worksheet.getCell(12, col);
+      labelCell.value = weekdays[i].label;
+      const labelStyle = labelCell.style || {};
+      labelCell.style = {
+        ...labelStyle,
+        alignment: {
+          horizontal: 'center',
+          vertical: 'middle',
+          textRotation: 90  // 🎯 VERTICAL!
+        }
+      };
     }
 
-    // Fixed column positions for totals and remarks
-    const absentCol = 29; // Column AC
-    const tardyCol = 30;  // Column AD
-    const remarksCol = 31; // Column AE
-
-    // Unmerge existing cells in the header area to avoid conflicts
-    try {
-      worksheet.unMergeCells('AC10:AD11');
-    } catch (e) {
-      // Cell might not be merged, that's okay
-    }
-    
-    try {
-      worksheet.unMergeCells('AE10:AJ13');
-    } catch (e) {
-      // Cell might not be merged, that's okay
-    }
-
-    // Set "Total for the Month" header - merged cells AC10:AD11
-    worksheet.mergeCells('AC10:AD11');
-    const totalHeader = worksheet.getCell('AC10');
-    totalHeader.value = 'Total for the Month';
-    totalHeader.font = { bold: true, size: 10 };
-    totalHeader.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-    totalHeader.border = {
-      top: { style: 'thin' },
-      left: { style: 'thin' },
-      bottom: { style: 'thin' },
-      right: { style: 'thin' }
-    };
-
-    // Set "ABSENT" label at AC12
-    const absentLabel = worksheet.getCell('AC12');
-    absentLabel.value = 'ABSENT';
-    absentLabel.font = { bold: true, size: 10 };
-    absentLabel.alignment = { horizontal: 'center', vertical: 'middle' };
-    absentLabel.border = {
-      top: { style: 'thin' },
-      left: { style: 'thin' },
-      bottom: { style: 'thin' },
-      right: { style: 'thin' }
-    };
-
-    // Set "TARDY" label at AD12
-    const tardyLabel = worksheet.getCell('AD12');
-    tardyLabel.value = 'TARDY';
-    tardyLabel.font = { bold: true, size: 10 };
-    tardyLabel.alignment = { horizontal: 'center', vertical: 'middle' };
-    tardyLabel.border = {
-      top: { style: 'thin' },
-      left: { style: 'thin' },
-      bottom: { style: 'thin' },
-      right: { style: 'thin' }
-    };
-
-    // Set "REMARKS" header - merged cells AE10:AJ13
-    worksheet.mergeCells('AE10:AJ13');
-    const remarksHeader = worksheet.getCell('AE10');
-    remarksHeader.value = 'REMARKS (If DROPPED OUT, state reason, please refer to legend number 2. If TRANSFERRED IN/OUT, write the name of School.)';
-    remarksHeader.font = { name: 'Arial Narrow', bold: true, size: 12 };
-    remarksHeader.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-    remarksHeader.border = {
-      top: { style: 'thin' },
-      left: { style: 'thin' },
-      bottom: { style: 'thin' },
-      right: { style: 'thin' }
-    };
-
-    // Clear student rows (14-34 for male, 36-60 for female)
-    for (let row = 14; row <= 34; row++) {
-      worksheet.getCell(row, 1).value = null;
-      worksheet.getCell(row, 2).value = null;
-      for (let col = firstDayCol; col < firstDayCol + 31; col++) {
-        worksheet.getCell(row, col).value = null;
-      }
-      worksheet.getCell(row, absentCol).value = null;
-      worksheet.getCell(row, tardyCol).value = null;
-      worksheet.getCell(row, remarksCol).value = null;
-    }
-
-    // Clear female student rows (36-60)
-    for (let row = 36; row <= 60; row++) {
-      worksheet.getCell(row, 1).value = null;
-      worksheet.getCell(row, 2).value = null;
-      for (let col = firstDayCol; col < firstDayCol + 31; col++) {
-        worksheet.getCell(row, col).value = null;
-      }
-      worksheet.getCell(row, absentCol).value = null;
-      worksheet.getCell(row, tardyCol).value = null;
-      worksheet.getCell(row, remarksCol).value = null;
-    }
-
-    const maleStudents = students.filter((s: any) => s.gender === 'MALE');
-    const femaleStudents = students.filter((s: any) => s.gender === 'FEMALE');
-
-    // MALE students: rows 14-34, numbering starts from 1
+    // 🎯 STEP 3: FILL MALE STUDENTS
+    console.log('👨 Step 3: Filling male students...');
     let currentRow = 14;
-    let maleStudentNumber = 1;
-
+    let maleNumber = 1;
+    
     for (const student of maleStudents) {
-      worksheet.getCell(currentRow, 1).value = maleStudentNumber;
-      worksheet.getCell(currentRow, 1).alignment = { horizontal: 'center', vertical: 'middle' };
+      if (currentRow > 53) break;
       
-      worksheet.getCell(currentRow, 2).value = student.name;
-      worksheet.getCell(currentRow, 2).alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
+      // Auto number - UPRIGHT (0 degrees)
+      const numberCell = worksheet.getCell(currentRow, 1);
+      numberCell.value = maleNumber;
+      const numberStyle = numberCell.style || {};
+      numberCell.style = {
+        ...numberStyle,
+        alignment: {
+          horizontal: 'center',
+          vertical: 'middle',
+          textRotation: 0  // 🎯 UPRIGHT for numbers!
+        }
+      };
       
-      let absentCount = 0;
-      for (let j = 0; j < numWeekdays; j++) {
-        const cell = worksheet.getCell(currentRow, firstDayCol + j);
-        const dayNumber = weekdays[j].day;
+      // Student name
+      const nameCell = worksheet.getCell(currentRow, 2);
+      nameCell.value = student.name;
+      
+      // Attendance marks
+      for (let i = 0; i < numWeekdays; i++) {
+        const col = firstDayCol + i;
+        const dayNumber = weekdays[i].day;
         
-        const isPresent = student.attendance && Array.isArray(student.attendance) && student.attendance[dayNumber - 1];
+        const isPresent = student.attendance && 
+                         Array.isArray(student.attendance) && 
+                         student.attendance[dayNumber - 1] === true;
         
         if (isPresent) {
+          const cell = worksheet.getCell(currentRow, col);
           cell.value = '/';
-          cell.font = { size: 10 };
-          cell.alignment = { horizontal: 'center', vertical: 'middle' };
-        } else {
-          absentCount++;
-          cell.value = null;
         }
       }
       
-      worksheet.getCell(currentRow, absentCol).value = absentCount;
-      worksheet.getCell(currentRow, absentCol).alignment = { horizontal: 'center', vertical: 'middle' };
+      // Absent count formula
+      const firstDateCol = getColumnLetter(firstDayCol);
+      const lastDateCol = getColumnLetter(firstDayCol + numWeekdays - 1);
       
-      maleStudentNumber++;
+      const absentCell = worksheet.getCell(currentRow, absentCol);
+      absentCell.value = {
+        formula: `${numWeekdays}-COUNTIF(${firstDateCol}${currentRow}:${lastDateCol}${currentRow},"/")`
+      };
+      
+      maleNumber++;
       currentRow++;
     }
 
-    // MALE TOTAL at row 35 with arrows
-    const maleTotalRow = 35;
-    const maleTotalLabel = worksheet.getCell(maleTotalRow, 2);
-    maleTotalLabel.value = '◄    MALE | TOTAL Per Day    ►';
-    maleTotalLabel.font = { bold: true, size: 10 };
-    maleTotalLabel.alignment = { horizontal: 'center', vertical: 'middle' };
+    const lastMaleRow = currentRow - 1;
+
+    // 🎯 MALE TOTAL ROW
+    const maleTotalRow = 54;
+    const maleTotalLabel = worksheet.getCell(maleTotalRow, 1);
+    maleTotalLabel.value = '◄ MALE | TOTAL Per Day ►';
+    const maleLabelStyle = maleTotalLabel.style || {};
+    maleTotalLabel.style = {
+      ...maleLabelStyle,
+      alignment: {
+        horizontal: 'center',
+        vertical: 'middle',
+        textRotation: 0  // Label stays horizontal
+      },
+      font: { bold: true, size: 10 }
+    };
     
+    // MALE TOTAL VALUES - VERTICAL (90 degrees)
     for (let i = 0; i < numWeekdays; i++) {
-      let total = 0;
-      const dayNumber = weekdays[i].day;
-      for (const student of maleStudents) {
-        if (student.attendance && Array.isArray(student.attendance) && student.attendance[dayNumber - 1]) {
-          total++;
+      const col = firstDayCol + i;
+      const colLetter = getColumnLetter(col);
+      
+      const cell = worksheet.getCell(maleTotalRow, col);
+      cell.value = {
+        formula: `COUNTIF(${colLetter}14:${colLetter}${lastMaleRow},"/")`
+      };
+      const existingStyle = cell.style || {};
+      cell.style = {
+        ...existingStyle,
+        alignment: {
+          horizontal: 'center',
+          vertical: 'middle',
+          textRotation: 90  // 🎯 VERTICAL for totals!
         }
-      }
-      const cell = worksheet.getCell(maleTotalRow, firstDayCol + i);
-      cell.value = total;
-      cell.font = { bold: true, size: 10 };
-      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      };
     }
 
-    // FEMALE students: rows 36-60, numbering starts from 1
-    currentRow = 36;
-    let femaleStudentNumber = 1;
+    // 🎯 STEP 4: FILL FEMALE STUDENTS
+    console.log('👩 Step 4: Filling female students...');
+    currentRow = 55;
+    let femaleNumber = 1;
     
     for (const student of femaleStudents) {
-      worksheet.getCell(currentRow, 1).value = femaleStudentNumber;
-      worksheet.getCell(currentRow, 1).alignment = { horizontal: 'center', vertical: 'middle' };
+      if (currentRow > 94) break;
       
-      worksheet.getCell(currentRow, 2).value = student.name;
-      worksheet.getCell(currentRow, 2).alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
+      // Auto number - UPRIGHT (0 degrees)
+      const numberCell = worksheet.getCell(currentRow, 1);
+      numberCell.value = femaleNumber;
+      const numberStyle = numberCell.style || {};
+      numberCell.style = {
+        ...numberStyle,
+        alignment: {
+          horizontal: 'center',
+          vertical: 'middle',
+          textRotation: 0  // 🎯 UPRIGHT for numbers!
+        }
+      };
       
-      let absentCount = 0;
-      for (let j = 0; j < numWeekdays; j++) {
-        const cell = worksheet.getCell(currentRow, firstDayCol + j);
-        const dayNumber = weekdays[j].day;
+      // Student name
+      const nameCell = worksheet.getCell(currentRow, 2);
+      nameCell.value = student.name;
+      
+      // Attendance marks
+      for (let i = 0; i < numWeekdays; i++) {
+        const col = firstDayCol + i;
+        const dayNumber = weekdays[i].day;
         
-        const isPresent = student.attendance && Array.isArray(student.attendance) && student.attendance[dayNumber - 1];
+        const isPresent = student.attendance && 
+                         Array.isArray(student.attendance) && 
+                         student.attendance[dayNumber - 1] === true;
         
         if (isPresent) {
+          const cell = worksheet.getCell(currentRow, col);
           cell.value = '/';
-          cell.font = { size: 10 };
-          cell.alignment = { horizontal: 'center', vertical: 'middle' };
-        } else {
-          absentCount++;
-          cell.value = null;
         }
       }
       
-      worksheet.getCell(currentRow, absentCol).value = absentCount;
-      worksheet.getCell(currentRow, absentCol).alignment = { horizontal: 'center', vertical: 'middle' };
+      // Absent count formula
+      const firstDateCol = getColumnLetter(firstDayCol);
+      const lastDateCol = getColumnLetter(firstDayCol + numWeekdays - 1);
       
-      femaleStudentNumber++;
+      const absentCell = worksheet.getCell(currentRow, absentCol);
+      absentCell.value = {
+        formula: `${numWeekdays}-COUNTIF(${firstDateCol}${currentRow}:${lastDateCol}${currentRow},"/")`
+      };
+      
+      femaleNumber++;
       currentRow++;
     }
 
-    // FEMALE TOTAL at row 61 with arrows
-    const femaleTotalRow = 61;
-    const femaleTotalLabel = worksheet.getCell(femaleTotalRow, 2);
-    femaleTotalLabel.value = '◄    FEMALE | TOTAL Per Day    ►';
-    femaleTotalLabel.font = { bold: true, size: 10 };
-    femaleTotalLabel.alignment = { horizontal: 'center', vertical: 'middle' };
+    const lastFemaleRow = currentRow - 1;
+
+    // 🎯 FEMALE TOTAL ROW
+    const femaleTotalRow = 95;
+    const femaleTotalLabel = worksheet.getCell(femaleTotalRow, 1);
+    femaleTotalLabel.value = '◄ FEMALE | TOTAL Per Day ►';
+    const femaleLabelStyle = femaleTotalLabel.style || {};
+    femaleTotalLabel.style = {
+      ...femaleLabelStyle,
+      alignment: {
+        horizontal: 'center',
+        vertical: 'middle',
+        textRotation: 0  // Label stays horizontal
+      },
+      font: { bold: true, size: 10 }
+    };
     
+    // FEMALE TOTAL VALUES - VERTICAL (90 degrees)
     for (let i = 0; i < numWeekdays; i++) {
-      let total = 0;
-      const dayNumber = weekdays[i].day;
-      for (const student of femaleStudents) {
-        if (student.attendance && Array.isArray(student.attendance) && student.attendance[dayNumber - 1]) {
-          total++;
+      const col = firstDayCol + i;
+      const colLetter = getColumnLetter(col);
+      
+      const cell = worksheet.getCell(femaleTotalRow, col);
+      cell.value = {
+        formula: `COUNTIF(${colLetter}55:${colLetter}${lastFemaleRow},"/")`
+      };
+      const existingStyle = cell.style || {};
+      cell.style = {
+        ...existingStyle,
+        alignment: {
+          horizontal: 'center',
+          vertical: 'middle',
+          textRotation: 90  // 🎯 VERTICAL for totals!
         }
-      }
-      const cell = worksheet.getCell(femaleTotalRow, firstDayCol + i);
-      cell.value = total;
-      cell.font = { bold: true, size: 10 };
-      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      };
     }
 
-    // COMBINED TOTAL at row 62
-    const combinedTotalRow = 62;
+    // 🎯 COMBINED TOTAL ROW
+    const combinedTotalRow = 96;
+    const combinedLabel = worksheet.getCell(combinedTotalRow, 1);
+    if (!combinedLabel.value) {
+      combinedLabel.value = 'Combined TOTAL PER DAY';
+    }
+    const combinedLabelStyle = combinedLabel.style || {};
+    combinedLabel.style = {
+      ...combinedLabelStyle,
+      alignment: {
+        horizontal: 'center',
+        vertical: 'middle',
+        textRotation: 0  // Label stays horizontal
+      },
+      font: { bold: true, size: 10 }
+    };
+    
+    // COMBINED TOTAL VALUES - VERTICAL (90 degrees)
     for (let i = 0; i < numWeekdays; i++) {
-      let total = 0;
-      const dayNumber = weekdays[i].day;
-      for (const student of students) {
-        if (student.attendance && Array.isArray(student.attendance) && student.attendance[dayNumber - 1]) {
-          total++;
+      const col = firstDayCol + i;
+      const colLetter = getColumnLetter(col);
+      
+      const cell = worksheet.getCell(combinedTotalRow, col);
+      cell.value = {
+        formula: `${colLetter}${maleTotalRow}+${colLetter}${femaleTotalRow}`
+      };
+      const existingStyle = cell.style || {};
+      cell.style = {
+        ...existingStyle,
+        alignment: {
+          horizontal: 'center',
+          vertical: 'middle',
+          textRotation: 90  // 🎯 VERTICAL for totals!
         }
-      }
-      const cell = worksheet.getCell(combinedTotalRow, firstDayCol + i);
-      cell.value = total;
-      cell.font = { bold: true, size: 10 };
-      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      };
     }
 
     const buffer = await workbook.xlsx.writeBuffer();
+
+    console.log('✅ SF2 COMPLETE - All correct orientations!');
+    console.log('   - Auto numbers: UPRIGHT (0°)');
+    console.log('   - Dates/Days: VERTICAL (90°)');
+    console.log('   - Totals: VERTICAL (90°)');
 
     return new NextResponse(buffer, {
       headers: {
@@ -306,10 +410,11 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error: any) {
-    console.error('Error generating SF2:', error);
+    console.error('❌ Error:', error);
     return NextResponse.json({ 
       error: 'Failed to generate SF2',
-      message: error.message 
+      message: error.message,
+      stack: error.stack
     }, { status: 500 });
   }
 }
