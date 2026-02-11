@@ -11,7 +11,7 @@ import SectionsView from './components/SectionsView';
 import { COLORS, SHADOWS, TRANSITIONS } from './utils/constants';
 import { School, Section, Student, TodayScans } from './utils/types';
 
-// ⬇️ ADD THESE HELPER FUNCTIONS HERE ⬇️
+// ⬇️ HELPER FUNCTIONS ⬇️
 function extractSectionFromStudentId(studentId: string): string | null {
   if (!studentId) return null;
   const parts = studentId.split('_');
@@ -127,6 +127,7 @@ export default function SchoolDashboard() {
       attendanceSnapshot.docs.forEach(doc => {
         const data = doc.data();
         
+        // ✅ attendance uses schoolId
         if (!data.schoolId || data.schoolId !== schoolIdParam) return;
         
         try {
@@ -221,37 +222,36 @@ export default function SchoolDashboard() {
         })) as Section[];
         setSections(sectionsData);
 
-       const studentsQuery = query(collection(db, 'students'));
-const studentsSnapshot = await getDocs(studentsQuery);
-const counts: Record<string, number> = {};
+        const studentsQuery = query(collection(db, 'students'));
+        const studentsSnapshot = await getDocs(studentsQuery);
+        const counts: Record<string, number> = {};
 
-// Initialize counts
-sectionsData.forEach(section => {
-  counts[section.sectionId] = 0;
-});
+        // Initialize counts
+        sectionsData.forEach(section => {
+          counts[section.sectionId] = 0;
+        });
 
-// Count using FIXED logic
-studentsSnapshot.docs.forEach(doc => {
-  const studentData = doc.data();
-  const studentId = studentData.studentId;
-  
-  if (studentId?.startsWith(storedSchoolId + '_')) {
-    const studentSection = extractSectionFromStudentId(studentId);
-    
-    sectionsData.forEach(section => {
-      const sectionIdentifier = getSectionIdentifier(section);
-      
-      if (studentSection === sectionIdentifier) {
-        counts[section.sectionId]++;
-      }
-    });
-  }
-});
+        // ✅ FIX: Use schoolPin as primary key for students
+        studentsSnapshot.docs.forEach(doc => {
+          const studentData = doc.data();
+          
+          if (studentData.schoolPin === storedSchoolId) {
+            const studentSection = extractSectionFromStudentId(studentData.studentId);
+            
+            sectionsData.forEach(section => {
+              const sectionIdentifier = getSectionIdentifier(section);
+              
+              if (studentSection === sectionIdentifier) {
+                counts[section.sectionId]++;
+              }
+            });
+          }
+        });
 
-console.log('✅ Student counts:', counts);
-console.log('✅ Total:', Object.values(counts).reduce((s, c) => s + c, 0));
+        console.log('✅ Student counts:', counts);
+        console.log('✅ Total:', Object.values(counts).reduce((s, c) => s + c, 0));
 
-setStudentCounts(counts);
+        setStudentCounts(counts);
         
         await fetchTodayScans(storedSchoolId);
 
@@ -337,360 +337,351 @@ setStudentCounts(counts);
   };
 
   const handleOpenStudentList = async (section: Section) => {
-  setSelectedSection(section);
-  setShowStudentListModal(true);
+    setSelectedSection(section);
+    setShowStudentListModal(true);
 
-  try {
-    const studentsQuery = query(collection(db, 'students'));
-    const studentsSnapshot = await getDocs(studentsQuery);
-    const students: Student[] = [];
+    try {
+      const studentsQuery = query(collection(db, 'students'));
+      const studentsSnapshot = await getDocs(studentsQuery);
+      const students: Student[] = [];
+      
+      const sectionIdentifier = getSectionIdentifier(section);
+
+      studentsSnapshot.docs.forEach(doc => {
+        const studentData = doc.data();
+
+        // ✅ FIX: Use schoolPin as primary key for students
+        if (studentData.schoolPin === schoolId) {
+          const studentSection = extractSectionFromStudentId(studentData.studentId);
+          
+          if (studentSection === sectionIdentifier) {
+            students.push({
+              id: doc.id,
+              ...studentData
+            } as Student);
+          }
+        }
+      });
+
+      // Sort: Males first, then alphabetically
+      students.sort((a, b) => {
+        if (a.gender === b.gender) {
+          return (a.name || '').localeCompare(b.name || '');
+        }
+        return a.gender === 'MALE' ? -1 : 1;
+      });
+
+      console.log(`✅ Found ${students.length} students for ${sectionIdentifier}`);
+      setSectionStudents(students);
+    } catch (error) {
+      console.error('Error fetching students:', error);
+    }
+  };
+
+  const handleOpenAttendance = async (section: Section) => {
+    setSelectedSection(section);
+    setShowAttendanceModal(true);
     
-    // Get normalized section identifier
+    const today = new Date().toISOString().split('T')[0];
+    setDateFrom(today);
+    setDateTo(today);
+    setSelectedStudent('all');
+
     const sectionIdentifier = getSectionIdentifier(section);
 
-    studentsSnapshot.docs.forEach(doc => {
-      const studentData = doc.data();
-      const studentId = studentData.studentId;
+    try {
+      const studentsQuery = query(collection(db, 'students'));
+      const studentsSnapshot = await getDocs(studentsQuery);
+      const students: any[] = [];
 
-      if (studentId?.startsWith(schoolId + '_')) {
-        // Extract section from student ID using helper
-        const studentSection = extractSectionFromStudentId(studentId);
-        
-        // Compare normalized identifiers
-        if (studentSection === sectionIdentifier) {
-          students.push({
-            id: doc.id,
-            ...studentData
-          } as Student);
+      studentsSnapshot.docs.forEach(doc => {
+        const studentData = doc.data();
+
+        // ✅ FIX: Use schoolPin as primary key for students
+        if (studentData.schoolPin === schoolId) {
+          const studentSection = extractSectionFromStudentId(studentData.studentId);
+          
+          if (studentSection === sectionIdentifier) {
+            students.push({
+              id: doc.id,
+              ...studentData
+            });
+          }
         }
-      }
-    });
-
-    // Sort: Males first, then alphabetically
-    students.sort((a, b) => {
-      if (a.gender === b.gender) {
-        return (a.name || '').localeCompare(b.name || '');
-      }
-      return a.gender === 'MALE' ? -1 : 1;
-    });
-
-    console.log(`✅ Found ${students.length} students for ${sectionIdentifier}`);
-    setSectionStudents(students);
-  } catch (error) {
-    console.error('Error fetching students:', error);
-  }
-};
-
- const handleOpenAttendance = async (section: Section) => {
-  setSelectedSection(section);
-  setShowAttendanceModal(true);
-  
-  // ✅ FIX: Set today as default date
-  const today = new Date().toISOString().split('T')[0];
-  setDateFrom(today);
-  setDateTo(today);
-  setSelectedStudent('all');
-
-  // ✅ FIX: Use helper function for section identifier
-  const sectionIdentifier = getSectionIdentifier(section);
-
-  try {
-    const studentsQuery = query(collection(db, 'students'));
-    const studentsSnapshot = await getDocs(studentsQuery);
-    const students: any[] = [];
-
-    studentsSnapshot.docs.forEach(doc => {
-      const studentData = doc.data();
-      const studentId = studentData.studentId;
-
-      if (studentId?.startsWith(schoolId + '_')) {
-        // ✅ FIX: Use helper function
-        const studentSection = extractSectionFromStudentId(studentId);
-        
-        if (studentSection === sectionIdentifier) {
-          students.push({
-            id: doc.id,
-            ...studentData
-          });
-        }
-      }
-    });
-
-    students.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-    setSectionStudents(students);
-    
-    // ✅ FIX: Auto-fetch attendance for TODAY
-    await fetchAttendanceRecords(sectionIdentifier, today, today, 'all');
-  } catch (error) {
-    console.error('Error fetching students:', error);
-  }
-};
-
-
- const fetchAttendanceRecords = async (sectionIdentifier: string, from: string, to: string, studentFilter: string) => {
-  try {
-    const attendanceQuery = query(collection(db, 'attendance'));
-    const attendanceSnapshot = await getDocs(attendanceQuery);
-    
-    const allScans: any[] = [];
-    
-    attendanceSnapshot.docs.forEach(doc => {
-      const data = doc.data();
-      
-      // ✅ FIX: Match using sectionIdentifier parameter (already normalized)
-      if (data.section !== sectionIdentifier) return;
-      
-      // ✅ FIX: Use helper function for date parsing
-      const scanDateTime = parseScanDateTime(data.scanDateTime);
-      if (!scanDateTime || isNaN(scanDateTime.getTime())) return;
-      
-      const scanDate = scanDateTime.toISOString().split('T')[0];
-      
-      if (scanDate < from || scanDate > to) return;
-      
-      if (studentFilter !== 'all' && data.studentId !== studentFilter) {
-        return;
-      }
-      
-      const scanTime = scanDateTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-      
-      allScans.push({
-        studentId: data.studentId,
-        studentName: data.studentName,
-        date: scanDate,
-        time: scanTime,
-        scanDateTime: scanDateTime,
-        action: (data.action || '').toUpperCase(),
-        session: data.session || 'WD'
       });
-    });
 
-    allScans.sort((a, b) => a.scanDateTime.getTime() - b.scanDateTime.getTime());
-
-    if (studentFilter !== 'all') {
-      const records: any[] = [];
+      students.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      setSectionStudents(students);
       
-      allScans.forEach(scan => {
-        const { studentId, studentName, date, time, action, session } = scan;
+      await fetchAttendanceRecords(sectionIdentifier, today, today, 'all');
+    } catch (error) {
+      console.error('Error fetching students:', error);
+    }
+  };
+
+  const fetchAttendanceRecords = async (sectionIdentifier: string, from: string, to: string, studentFilter: string) => {
+    try {
+      const attendanceQuery = query(collection(db, 'attendance'));
+      const attendanceSnapshot = await getDocs(attendanceQuery);
+      
+      const allScans: any[] = [];
+      
+      attendanceSnapshot.docs.forEach(doc => {
+        const data = doc.data();
         
-        records.push({
-          studentId,
-          studentName,
-          date,
-          session,
-          amIn: isAMSession(session) && action === 'IN' ? time : null,
-          amOut: isAMSession(session) && action === 'OUT' ? time : null,
-          pmIn: isPMSession(session) && action === 'IN' ? time : null,
-          pmOut: isPMSession(session) && action === 'OUT' ? time : null
+        // ✅ FIX: Always check schoolId first for attendance
+        if (data.schoolId !== schoolId) return;
+        if (data.section !== sectionIdentifier) return;
+        
+        const scanDateTime = parseScanDateTime(data.scanDateTime);
+        if (!scanDateTime || isNaN(scanDateTime.getTime())) return;
+        
+        const scanDate = scanDateTime.toISOString().split('T')[0];
+        
+        if (scanDate < from || scanDate > to) return;
+        
+        if (studentFilter !== 'all' && data.studentId !== studentFilter) {
+          return;
+        }
+        
+        const scanTime = scanDateTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+        
+        allScans.push({
+          studentId: data.studentId,
+          studentName: data.studentName,
+          date: scanDate,
+          time: scanTime,
+          scanDateTime: scanDateTime,
+          action: (data.action || '').toUpperCase(),
+          session: data.session || 'WD'
         });
       });
 
-      records.sort((a, b) => b.date.localeCompare(a.date));
-      setAttendanceRecords(records);
-      
-    } else {
-      const attendanceMap: Record<string, Record<string, any>> = {};
-      
-      allScans.forEach(scan => {
-        const { studentId, studentName, date, time, action, session } = scan;
+      allScans.sort((a, b) => a.scanDateTime.getTime() - b.scanDateTime.getTime());
+
+      if (studentFilter !== 'all') {
+        const records: any[] = [];
         
-        if (!attendanceMap[studentId]) {
-          attendanceMap[studentId] = {};
-        }
-        
-        if (!attendanceMap[studentId][date]) {
-          attendanceMap[studentId][date] = {
+        allScans.forEach(scan => {
+          const { studentId, studentName, date, time, action, session } = scan;
+          
+          records.push({
             studentId,
             studentName,
             date,
             session,
-            amIn: null,
-            amOut: null,
-            pmIn: null,
-            pmOut: null
+            amIn: isAMSession(session) && action === 'IN' ? time : null,
+            amOut: isAMSession(session) && action === 'OUT' ? time : null,
+            pmIn: isPMSession(session) && action === 'IN' ? time : null,
+            pmOut: isPMSession(session) && action === 'OUT' ? time : null
+          });
+        });
+
+        records.sort((a, b) => b.date.localeCompare(a.date));
+        setAttendanceRecords(records);
+        
+      } else {
+        const attendanceMap: Record<string, Record<string, any>> = {};
+        
+        allScans.forEach(scan => {
+          const { studentId, studentName, date, time, action, session } = scan;
+          
+          if (!attendanceMap[studentId]) {
+            attendanceMap[studentId] = {};
+          }
+          
+          if (!attendanceMap[studentId][date]) {
+            attendanceMap[studentId][date] = {
+              studentId,
+              studentName,
+              date,
+              session,
+              amIn: null,
+              amOut: null,
+              pmIn: null,
+              pmOut: null
+            };
+          }
+          
+          const record = attendanceMap[studentId][date];
+          
+          if (session === 'WD' || session === 'WD AM') {
+            if (action === 'IN') {
+              if (!record.amIn) record.amIn = time;
+            } else if (action === 'OUT') {
+              record.amOut = time;
+            }
+          }
+          
+          if (session === 'WD' || session === 'WD PM') {
+            if (action === 'IN') {
+              if (!record.pmIn) record.pmIn = time;
+            } else if (action === 'OUT') {
+              record.pmOut = time;
+            }
+          }
+          
+          if (session === 'AM') {
+            if (action === 'IN') {
+              if (!record.amIn) record.amIn = time;
+            } else if (action === 'OUT') {
+              record.amOut = time;
+            }
+          }
+          
+          if (session === 'PM') {
+            if (action === 'IN') {
+              if (!record.pmIn) record.pmIn = time;
+            } else if (action === 'OUT') {
+              record.pmOut = time;
+            }
+          }
+        });
+
+        const records: any[] = [];
+        Object.values(attendanceMap).forEach(studentDates => {
+          Object.values(studentDates).forEach(record => {
+            records.push(record);
+          });
+        });
+
+        records.sort((a, b) => {
+          const dateCompare = b.date.localeCompare(a.date);
+          if (dateCompare !== 0) return dateCompare;
+          return a.studentName.localeCompare(b.studentName);
+        });
+
+        setAttendanceRecords(records);
+      }
+      
+      console.log(`✅ Attendance: ${allScans.length} scans found for ${sectionIdentifier}`);
+    } catch (error) {
+      console.error('Error fetching attendance:', error);
+    }
+  };
+
+  const handleOpenTopAttendees = async (section: Section) => {
+    setSelectedSection(section);
+    setShowTopAttendeesModal(true);
+    setTopCount(10);
+    
+    const sectionIdentifier = getSectionIdentifier(section);
+
+    try {
+      const studentsQuery = query(collection(db, 'students'));
+      const studentsSnapshot = await getDocs(studentsQuery);
+      const students: any[] = [];
+
+      studentsSnapshot.docs.forEach(doc => {
+        const studentData = doc.data();
+
+        // ✅ FIX: Use schoolPin as primary key for students
+        if (studentData.schoolPin === schoolId) {
+          const studentSection = extractSectionFromStudentId(studentData.studentId);
+
+          if (studentSection === sectionIdentifier) {
+            students.push({
+              id: doc.id,
+              ...studentData,
+              attendanceCount: 0
+            });
+          }
+        }
+      });
+
+      const attendanceQuery = query(collection(db, 'attendance'));
+      const attendanceSnapshot = await getDocs(attendanceQuery);
+      
+      const studentDateMap: Record<string, Record<string, { amIn: boolean, amOut: boolean, pmIn: boolean, pmOut: boolean, session: string }>> = {};
+      
+      attendanceSnapshot.docs.forEach(doc => {
+        const data = doc.data();
+        
+        // ✅ FIX: Always check schoolId first for attendance
+        if (data.schoolId !== schoolId) return;
+        if (data.section !== sectionIdentifier) return;
+        
+        const scanDateTime = parseScanDateTime(data.scanDateTime);
+        if (!scanDateTime || isNaN(scanDateTime.getTime())) return;
+        
+        const scanDate = scanDateTime.toISOString().split('T')[0];
+        const action = (data.action || '').toUpperCase();
+        const session = data.session || 'WD';
+        
+        if (!studentDateMap[data.studentId]) {
+          studentDateMap[data.studentId] = {};
+        }
+        
+        if (!studentDateMap[data.studentId][scanDate]) {
+          studentDateMap[data.studentId][scanDate] = {
+            amIn: false,
+            amOut: false,
+            pmIn: false,
+            pmOut: false,
+            session: session
           };
         }
         
-        const record = attendanceMap[studentId][date];
+        const record = studentDateMap[data.studentId][scanDate];
         
         if (session === 'WD' || session === 'WD AM') {
-          if (action === 'IN') {
-            if (!record.amIn) record.amIn = time;
-          } else if (action === 'OUT') {
-            record.amOut = time;
-          }
+          if (action === 'IN') record.amIn = true;
+          if (action === 'OUT') record.amOut = true;
         }
         
         if (session === 'WD' || session === 'WD PM') {
-          if (action === 'IN') {
-            if (!record.pmIn) record.pmIn = time;
-          } else if (action === 'OUT') {
-            record.pmOut = time;
-          }
+          if (action === 'IN') record.pmIn = true;
+          if (action === 'OUT') record.pmOut = true;
         }
         
         if (session === 'AM') {
-          if (action === 'IN') {
-            if (!record.amIn) record.amIn = time;
-          } else if (action === 'OUT') {
-            record.amOut = time;
-          }
+          if (action === 'IN') record.amIn = true;
+          if (action === 'OUT') record.amOut = true;
         }
         
         if (session === 'PM') {
-          if (action === 'IN') {
-            if (!record.pmIn) record.pmIn = time;
-          } else if (action === 'OUT') {
-            record.pmOut = time;
-          }
+          if (action === 'IN') record.pmIn = true;
+          if (action === 'OUT') record.pmOut = true;
         }
-      });
-
-      const records: any[] = [];
-      Object.values(attendanceMap).forEach(studentDates => {
-        Object.values(studentDates).forEach(record => {
-          records.push(record);
-        });
-      });
-
-      records.sort((a, b) => {
-        const dateCompare = b.date.localeCompare(a.date);
-        if (dateCompare !== 0) return dateCompare;
-        return a.studentName.localeCompare(b.studentName);
-      });
-
-      setAttendanceRecords(records);
-    }
-    
-    console.log(`✅ Attendance: ${allScans.length} scans found for ${sectionIdentifier}`);
-  } catch (error) {
-    console.error('Error fetching attendance:', error);
-  }
-};
-const handleOpenTopAttendees = async (section: Section) => {
-  setSelectedSection(section);
-  setShowTopAttendeesModal(true);
-  setTopCount(10);
-  
-  // ✅ FIX: Use helper function
-  const sectionIdentifier = getSectionIdentifier(section);
-
-  try {
-    const studentsQuery = query(collection(db, 'students'));
-    const studentsSnapshot = await getDocs(studentsQuery);
-    const students: any[] = [];
-
-    studentsSnapshot.docs.forEach(doc => {
-      const studentData = doc.data();
-      const studentId = studentData.studentId;
-
-      if (studentId?.startsWith(schoolId + '_')) {
-        // ✅ FIX: Use helper function
-        const studentSection = extractSectionFromStudentId(studentId);
-
-        if (studentSection === sectionIdentifier) {
-          students.push({
-            id: doc.id,
-            ...studentData,
-            attendanceCount: 0
-          });
-        }
-      }
-    });
-
-    const attendanceQuery = query(collection(db, 'attendance'));
-    const attendanceSnapshot = await getDocs(attendanceQuery);
-    
-    const studentDateMap: Record<string, Record<string, { amIn: boolean, amOut: boolean, pmIn: boolean, pmOut: boolean, session: string }>> = {};
-    
-    attendanceSnapshot.docs.forEach(doc => {
-      const data = doc.data();
-      
-      // ✅ FIX: Use sectionIdentifier for matching
-      if (data.section !== sectionIdentifier) return;
-      
-      // ✅ FIX: Use helper function for parsing
-      const scanDateTime = parseScanDateTime(data.scanDateTime);
-      if (!scanDateTime || isNaN(scanDateTime.getTime())) return;
-      
-      const scanDate = scanDateTime.toISOString().split('T')[0];
-      const action = (data.action || '').toUpperCase();
-      const session = data.session || 'WD';
-      
-      if (!studentDateMap[data.studentId]) {
-        studentDateMap[data.studentId] = {};
-      }
-      
-      if (!studentDateMap[data.studentId][scanDate]) {
-        studentDateMap[data.studentId][scanDate] = {
-          amIn: false,
-          amOut: false,
-          pmIn: false,
-          pmOut: false,
-          session: session
-        };
-      }
-      
-      const record = studentDateMap[data.studentId][scanDate];
-      
-      if (session === 'WD' || session === 'WD AM') {
-        if (action === 'IN') record.amIn = true;
-        if (action === 'OUT') record.amOut = true;
-      }
-      
-      if (session === 'WD' || session === 'WD PM') {
-        if (action === 'IN') record.pmIn = true;
-        if (action === 'OUT') record.pmOut = true;
-      }
-      
-      if (session === 'AM') {
-        if (action === 'IN') record.amIn = true;
-        if (action === 'OUT') record.amOut = true;
-      }
-      
-      if (session === 'PM') {
-        if (action === 'IN') record.pmIn = true;
-        if (action === 'OUT') record.pmOut = true;
-      }
-      
-      record.session = session;
-    });
-
-    students.forEach(student => {
-      let totalCount = 0;
-      const studentDates = studentDateMap[student.studentId] || {};
-      
-      Object.values(studentDates).forEach((record) => {
-        const { amIn, amOut, pmIn, pmOut, session } = record;
         
-        if (session === 'WD' || session === 'WD AM' || session === 'WD PM') {
-          if (amIn && pmOut) {
-            totalCount += 1.0;
-          } else if (amIn) {
-            totalCount += 0.5;
-          }
-        } else if (session === 'AM') {
-          if (amIn && amOut) {
-            totalCount += 1.0;
-          }
-        } else if (session === 'PM') {
-          if (pmIn && pmOut) {
-            totalCount += 1.0;
-          }
-        }
+        record.session = session;
       });
-      
-      student.attendanceCount = totalCount;
-    });
 
-    students.sort((a, b) => b.attendanceCount - a.attendanceCount);
-    
-    console.log(`✅ Top Attendees: ${students.length} students ranked for ${sectionIdentifier}`);
-    setTopAttendees(students);
-  } catch (error) {
-    console.error('Error fetching top attendees:', error);
-  }
-};
+      students.forEach(student => {
+        let totalCount = 0;
+        const studentDates = studentDateMap[student.studentId] || {};
+        
+        Object.values(studentDates).forEach((record) => {
+          const { amIn, amOut, pmIn, pmOut, session } = record;
+          
+          if (session === 'WD' || session === 'WD AM' || session === 'WD PM') {
+            if (amIn && pmOut) {
+              totalCount += 1.0;
+            } else if (amIn) {
+              totalCount += 0.5;
+            }
+          } else if (session === 'AM') {
+            if (amIn && amOut) {
+              totalCount += 1.0;
+            }
+          } else if (session === 'PM') {
+            if (pmIn && pmOut) {
+              totalCount += 1.0;
+            }
+          }
+        });
+        
+        student.attendanceCount = totalCount;
+      });
+
+      students.sort((a, b) => b.attendanceCount - a.attendanceCount);
+      
+      console.log(`✅ Top Attendees: ${students.length} students ranked for ${sectionIdentifier}`);
+      setTopAttendees(students);
+    } catch (error) {
+      console.error('Error fetching top attendees:', error);
+    }
+  };
 
   const handleOpenSF2 = (section: Section) => {
     setSelectedSection(section);
@@ -699,189 +690,183 @@ const handleOpenTopAttendees = async (section: Section) => {
     setSF2Year(new Date().getFullYear());
   };
 
-// UPDATED handleGenerateSF2 function - TYPESCRIPT FIXED
-// Replace in page.tsx
+  const handleGenerateSF2 = async () => {
+    if (!selectedSection) return;
+    setGeneratingSF2(true);
 
-const handleGenerateSF2 = async () => {
-  if (!selectedSection) return;
-  setGeneratingSF2(true);
+    try {
+      const sectionIdentifier = getSectionIdentifier(selectedSection);
+      console.log('📋 SF2 Generation for:', sectionIdentifier);
+      console.log('📋 Section from Firebase:', selectedSection.sectionId);
 
-  try {
-    const sectionIdentifier = getSectionIdentifier(selectedSection);
-    console.log('📋 SF2 Generation for:', sectionIdentifier);
-    console.log('📋 Section from Firebase:', selectedSection.sectionId);
+      // ✅ STEP 1: GET ALL STUDENTS
+      const studentsQuery = query(collection(db, 'students'));
+      const studentsSnapshot = await getDocs(studentsQuery);
+      const students: any[] = [];
+      const studentIds = new Set<string>();
 
-    // ✅ STEP 1: GET ALL STUDENTS
-    const studentsQuery = query(collection(db, 'students'));
-    const studentsSnapshot = await getDocs(studentsQuery);
-    const students: any[] = [];
-    const studentIds = new Set<string>();
+      studentsSnapshot.docs.forEach(doc => {
+        const studentData = doc.data();
+        const studentId = studentData.studentId;
 
-    studentsSnapshot.docs.forEach(doc => {
-      const studentData = doc.data();
-      const studentId = studentData.studentId;
-
-      if (studentIds.has(studentId)) {
-        console.log('⚠️ Duplicate skipped:', studentData.name);
-        return;
-      }
-
-      if (studentId?.startsWith(schoolId + '_')) {
-        const studentSection = extractSectionFromStudentId(studentId);
-
-        if (studentSection === sectionIdentifier) {
-          studentIds.add(studentId);
-          students.push({ 
-            id: doc.id,
-            studentId: studentId,
-            name: studentData.name,
-            gender: studentData.gender
-          });
+        if (studentIds.has(studentId)) {
+          console.log('⚠️ Duplicate skipped:', studentData.name);
+          return;
         }
-      }
-    });
 
-    students.sort((a, b) => {
-      if (a.gender === b.gender) {
-        return (a.name || '').localeCompare(b.name || '');
-      }
-      return a.gender === 'MALE' ? -1 : 1;
-    });
+        // ✅ FIX: Use schoolPin as primary key for students
+        if (studentData.schoolPin === schoolId) {
+          const studentSection = extractSectionFromStudentId(studentId);
 
-    console.log(`✅ SF2: Found ${students.length} UNIQUE students`);
-    console.log(`   👨 Males: ${students.filter(s => s.gender === 'MALE').length}`);
-    console.log(`   👩 Females: ${students.filter(s => s.gender === 'FEMALE').length}`);
+          if (studentSection === sectionIdentifier) {
+            studentIds.add(studentId);
+            students.push({ 
+              id: doc.id,
+              studentId: studentId,
+              name: studentData.name,
+              gender: studentData.gender
+            });
+          }
+        }
+      });
 
-    // ✅ STEP 2: CALCULATE DAYS IN MONTH
-    const daysInMonth = new Date(sf2Year, sf2Month, 0).getDate();
-    console.log(`📅 Days in ${sf2Month}/${sf2Year}:`, daysInMonth);
-    
-    // ✅ STEP 3: FETCH ALL ATTENDANCE RECORDS
-    const attendanceQuery = query(collection(db, 'attendance'));
-    const attendanceSnapshot = await getDocs(attendanceQuery);
-    
-    // ✅ FIXED: Use Set<string> instead of Set<number>
-    const attendanceMap: Record<string, Set<string>> = {};
-    let totalScans = 0;
-    let matchedScans = 0;
-    
-    console.log('🔍 Scanning attendance records...');
-    
-    attendanceSnapshot.docs.forEach(doc => {
-      const data = doc.data();
-      totalScans++;
-      
-      // ✅ CHECK 1: School ID match
-      if (data.schoolId !== schoolId) return;
-      
-      // ✅ CHECK 2: Section match (try different formats)
-      const dataSection = data.section || '';
-      const normalizedDataSection = dataSection.replace(/\s*-\s*/g, ' ').trim();
-      
-      if (normalizedDataSection !== sectionIdentifier) return;
-      
-      // ✅ CHECK 3: Must be "IN" action
-      if (data.action !== 'IN') return;
-      
-      // ✅ CHECK 4: Parse date
-      const scanDateTime = parseScanDateTime(data.scanDateTime);
-      if (!scanDateTime || isNaN(scanDateTime.getTime())) return;
-      
-      const scanYear = scanDateTime.getFullYear();
-      const scanMonth = scanDateTime.getMonth() + 1;
-      const scanDay = scanDateTime.getDate();
-      
-      // ✅ CHECK 5: Match month and year
-      if (scanYear !== sf2Year || scanMonth !== sf2Month) return;
-      
-      matchedScans++;
-      
-      // Add to attendance map
-      if (!attendanceMap[data.studentId]) {
-        attendanceMap[data.studentId] = new Set<string>();
-      }
-      
-      // ✅ FIXED: Store day as STRING, not number
-      attendanceMap[data.studentId].add(scanDay.toString());
-      
-      console.log(`✓ ${data.studentName}: Day ${scanDay} (${scanDateTime.toLocaleDateString()})`);
-    });
+      students.sort((a, b) => {
+        if (a.gender === b.gender) {
+          return (a.name || '').localeCompare(b.name || '');
+        }
+        return a.gender === 'MALE' ? -1 : 1;
+      });
 
-    console.log(`✅ Scanned ${totalScans} total attendance records`);
-    console.log(`✅ Matched ${matchedScans} records for ${sectionIdentifier}`);
-    console.log(`📊 ${Object.keys(attendanceMap).length} students with attendance`);
+      console.log(`✅ SF2: Found ${students.length} UNIQUE students`);
+      console.log(`   👨 Males: ${students.filter(s => s.gender === 'MALE').length}`);
+      console.log(`   👩 Females: ${students.filter(s => s.gender === 'FEMALE').length}`);
 
-    // ✅ STEP 4: BUILD SF2 DATA WITH ATTENDANCE
-    const gradeMatch = selectedSection.sectionId?.match(/G?(\d+)/i);
-    const grade = gradeMatch ? gradeMatch[1] : '';
-
-    const sf2Data = {
-      schoolId,
-      schoolName: schoolData?.schoolName || '',
-      schoolYear: `${sf2Year - 1}-${sf2Year}`,
-      month: new Date(sf2Year, sf2Month - 1).toLocaleString('default', { month: 'long' }),
-      gradeLevel: grade,
-      section: selectedSection.sectionName,
-      students: students.map(student => {
-        // Create attendance array: true/false for each day (1-31)
-        const attendance = Array.from({ length: daysInMonth }, (_, i) => {
-          const day = i + 1;
-          // ✅ FIXED: Compare strings
-          const isPresent = attendanceMap[student.studentId]?.has(day.toString()) || false;
-          return isPresent;
-        });
+      // ✅ STEP 2: CALCULATE DAYS IN MONTH
+      const daysInMonth = new Date(sf2Year, sf2Month, 0).getDate();
+      console.log(`📅 Days in ${sf2Month}/${sf2Year}:`, daysInMonth);
+      
+      // ✅ STEP 3: FETCH ALL ATTENDANCE RECORDS
+      const attendanceQuery = query(collection(db, 'attendance'));
+      const attendanceSnapshot = await getDocs(attendanceQuery);
+      
+      const attendanceMap: Record<string, Set<string>> = {};
+      let totalScans = 0;
+      let matchedScans = 0;
+      
+      console.log('🔍 Scanning attendance records...');
+      
+      attendanceSnapshot.docs.forEach(doc => {
+        const data = doc.data();
+        totalScans++;
         
-        const presentDays = attendance.filter(a => a).length;
+        // ✅ CHECK 1: School ID match (attendance uses schoolId)
+        if (data.schoolId !== schoolId) return;
         
-        console.log(`   ${student.name}: ${presentDays}/${daysInMonth} days present`);
+        // ✅ CHECK 2: Section match (try different formats)
+        const dataSection = data.section || '';
+        const normalizedDataSection = dataSection.replace(/\s*-\s*/g, ' ').trim();
         
-        return {
-          name: student.name,
-          gender: student.gender,
-          attendance: attendance  // Array of booleans [true, false, true, ...]
-        };
-      }),
-      daysInMonth,
-      adviser: selectedSection.adviser
-    };
+        if (normalizedDataSection !== sectionIdentifier) return;
+        
+        // ✅ CHECK 3: Must be "IN" action
+        if (data.action !== 'IN') return;
+        
+        // ✅ CHECK 4: Parse date
+        const scanDateTime = parseScanDateTime(data.scanDateTime);
+        if (!scanDateTime || isNaN(scanDateTime.getTime())) return;
+        
+        const scanYear = scanDateTime.getFullYear();
+        const scanMonth = scanDateTime.getMonth() + 1;
+        const scanDay = scanDateTime.getDate();
+        
+        // ✅ CHECK 5: Match month and year
+        if (scanYear !== sf2Year || scanMonth !== sf2Month) return;
+        
+        matchedScans++;
+        
+        // Add to attendance map
+        if (!attendanceMap[data.studentId]) {
+          attendanceMap[data.studentId] = new Set<string>();
+        }
+        
+        attendanceMap[data.studentId].add(scanDay.toString());
+        
+        console.log(`✓ ${data.studentName}: Day ${scanDay} (${scanDateTime.toLocaleDateString()})`);
+      });
 
-    console.log('📤 Sending to API...');
-    console.log('📦 Sample data:', {
-      totalStudents: sf2Data.students.length,
-      firstStudent: sf2Data.students[0]?.name,
-      firstStudentAttendance: sf2Data.students[0]?.attendance.slice(0, 10)
-    });
+      console.log(`✅ Scanned ${totalScans} total attendance records`);
+      console.log(`✅ Matched ${matchedScans} records for ${sectionIdentifier}`);
+      console.log(`📊 ${Object.keys(attendanceMap).length} students with attendance`);
 
-    const response = await fetch('/api/generate-sf2', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(sf2Data),
-    });
+      // ✅ STEP 4: BUILD SF2 DATA WITH ATTENDANCE
+      const gradeMatch = selectedSection.sectionId?.match(/G?(\d+)/i);
+      const grade = gradeMatch ? gradeMatch[1] : '';
 
-    if (response.ok) {
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `SF2_${sectionIdentifier.replace(/ /g, '_')}_${sf2Month}-${sf2Year}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      setShowSF2Modal(false);
-      console.log('✅ SF2 downloaded successfully!');
-    } else {
-      const errorText = await response.text();
-      console.error('❌ API Error:', errorText);
-      alert('Failed to generate SF2 form');
+      const sf2Data = {
+        schoolId,
+        schoolName: schoolData?.schoolName || '',
+        schoolYear: `${sf2Year - 1}-${sf2Year}`,
+        month: new Date(sf2Year, sf2Month - 1).toLocaleString('default', { month: 'long' }),
+        gradeLevel: grade,
+        section: selectedSection.sectionName,
+        students: students.map(student => {
+          const attendance = Array.from({ length: daysInMonth }, (_, i) => {
+            const day = i + 1;
+            const isPresent = attendanceMap[student.studentId]?.has(day.toString()) || false;
+            return isPresent;
+          });
+          
+          const presentDays = attendance.filter(a => a).length;
+          
+          console.log(`   ${student.name}: ${presentDays}/${daysInMonth} days present`);
+          
+          return {
+            name: student.name,
+            gender: student.gender,
+            attendance: attendance
+          };
+        }),
+        daysInMonth,
+        adviser: selectedSection.adviser
+      };
+
+      console.log('📤 Sending to API...');
+      console.log('📦 Sample data:', {
+        totalStudents: sf2Data.students.length,
+        firstStudent: sf2Data.students[0]?.name,
+        firstStudentAttendance: sf2Data.students[0]?.attendance.slice(0, 10)
+      });
+
+      const response = await fetch('/api/generate-sf2', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sf2Data),
+      });
+
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `SF2_${sectionIdentifier.replace(/ /g, '_')}_${sf2Month}-${sf2Year}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        setShowSF2Modal(false);
+        console.log('✅ SF2 downloaded successfully!');
+      } else {
+        const errorText = await response.text();
+        console.error('❌ API Error:', errorText);
+        alert('Failed to generate SF2 form');
+      }
+    } catch (error) {
+      console.error('❌ Error generating SF2:', error);
+      alert('Error generating SF2 form');
+    } finally {
+      setGeneratingSF2(false);
     }
-  } catch (error) {
-    console.error('❌ Error generating SF2:', error);
-    alert('Error generating SF2 form');
-  } finally {
-    setGeneratingSF2(false);
-  }
-};
+  };
 
   // PRINT FUNCTIONS
   const handlePrintStudentList = () => {
@@ -1719,8 +1704,6 @@ const handleGenerateSF2 = async () => {
         </div>
       )}
 
-   
-
       {/* STUDENT LIST MODAL */}
       {showStudentListModal && (
         <div
@@ -2043,13 +2026,13 @@ const handleGenerateSF2 = async () => {
                   <input
                     type="date"
                     value={dateFrom}
-                   onChange={(e) => {
-  setDateFrom(e.target.value);
-  if (selectedSection) {
-    const sectionIdentifier = getSectionIdentifier(selectedSection);
-    fetchAttendanceRecords(sectionIdentifier, e.target.value, dateTo, selectedStudent);
-  }
-}}
+                    onChange={(e) => {
+                      setDateFrom(e.target.value);
+                      if (selectedSection) {
+                        const sectionIdentifier = getSectionIdentifier(selectedSection);
+                        fetchAttendanceRecords(sectionIdentifier, e.target.value, dateTo, selectedStudent);
+                      }
+                    }}
                     style={{
                       width: '100%',
                       padding: '8px 10px',
@@ -2069,12 +2052,12 @@ const handleGenerateSF2 = async () => {
                     type="date"
                     value={dateTo}
                     onChange={(e) => {
-  setDateTo(e.target.value);
-  if (selectedSection) {
-    const sectionIdentifier = getSectionIdentifier(selectedSection);
-    fetchAttendanceRecords(sectionIdentifier, dateFrom, e.target.value, selectedStudent);
-  }
-}}
+                      setDateTo(e.target.value);
+                      if (selectedSection) {
+                        const sectionIdentifier = getSectionIdentifier(selectedSection);
+                        fetchAttendanceRecords(sectionIdentifier, dateFrom, e.target.value, selectedStudent);
+                      }
+                    }}
                     style={{
                       width: '100%',
                       padding: '8px 10px',
@@ -2093,12 +2076,12 @@ const handleGenerateSF2 = async () => {
                   <select
                     value={selectedStudent}
                     onChange={(e) => {
-  setSelectedStudent(e.target.value);
-  if (selectedSection) {
-    const sectionIdentifier = getSectionIdentifier(selectedSection);
-    fetchAttendanceRecords(sectionIdentifier, dateFrom, dateTo, e.target.value);
-  }
-}}
+                      setSelectedStudent(e.target.value);
+                      if (selectedSection) {
+                        const sectionIdentifier = getSectionIdentifier(selectedSection);
+                        fetchAttendanceRecords(sectionIdentifier, dateFrom, dateTo, e.target.value);
+                      }
+                    }}
                     style={{
                       width: '100%',
                       padding: '8px 10px',
