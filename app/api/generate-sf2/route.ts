@@ -1,7 +1,6 @@
-// app/api/generate-sf2/route.ts - COMPLETE FIX (All Vertical Except Auto Numbers)
+// app/api/generate-sf2/route.ts - VERCEL FIX (Fetch template from public URL)
 import { NextRequest, NextResponse } from 'next/server';
 import ExcelJS from 'exceljs';
-import * as path from 'path';
 
 export async function POST(request: NextRequest) {
   try {
@@ -17,17 +16,34 @@ export async function POST(request: NextRequest) {
       daysInMonth,
     } = data;
 
-    const templatePath = path.join(process.cwd(), 'public', 'templates', 'SF2_TEMPLATE.xlsx');
+    // ✅ VERCEL FIX: Fetch template from public URL instead of filesystem
+    const baseUrl =
+      process.env.NEXT_PUBLIC_BASE_URL ||
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) ||
+      'http://localhost:3000';
+
+    console.log('📋 SF2 Generation - VERCEL COMPATIBLE');
+    console.log(`   Base URL: ${baseUrl}`);
+    console.log(`   Students: ${students.length}`);
+
+    const templateUrl = `${baseUrl}/templates/SF2_TEMPLATE.xlsx`;
+    const templateResponse = await fetch(templateUrl);
+
+    if (!templateResponse.ok) {
+      throw new Error(
+        `Failed to fetch template from ${templateUrl}: ${templateResponse.status} ${templateResponse.statusText}`
+      );
+    }
+
+    const arrayBuffer = await templateResponse.arrayBuffer();
+
     const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(templatePath);
+    await workbook.xlsx.load(arrayBuffer as any);
     const worksheet = workbook.getWorksheet(1);
 
     if (!worksheet) {
       throw new Error('Template worksheet not found');
     }
-
-    console.log('📋 SF2 Generation - COMPLETE VERTICAL FIX');
-    console.log(`   Students: ${students.length}`);
 
     const maleStudents = students.filter((s: any) => s.gender === 'MALE');
     const femaleStudents = students.filter((s: any) => s.gender === 'FEMALE');
@@ -46,14 +62,14 @@ export async function POST(request: NextRequest) {
     const year = parseInt(schoolYear.split('-')[1]);
     const monthIndex = [
       'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'
+      'July', 'August', 'September', 'October', 'November', 'December',
     ].indexOf(month);
-    
-    const weekdays = [];
+
+    const weekdays: { day: number; label: string }[] = [];
     for (let day = 1; day <= daysInMonth; day++) {
       const date = new Date(year, monthIndex, day);
       const dayOfWeek = date.getDay();
-      
+
       if (dayOfWeek >= 1 && dayOfWeek <= 5) {
         let label = '';
         if (dayOfWeek === 1) label = 'M';
@@ -82,9 +98,9 @@ export async function POST(request: NextRequest) {
       return letter;
     };
 
-    // 🎯 STEP 1: CLEAR AND RESET ALL CELLS
+    // 🔧 STEP 1: CLEAR AND RESET ALL CELLS
     console.log('🔧 Step 1: Clearing all cells...');
-    
+
     // Clear column A (auto numbers) - rows 14 to 94 - UPRIGHT (0 degrees)
     for (let row = 14; row <= 94; row++) {
       const cell = worksheet.getCell(row, 1);
@@ -95,9 +111,9 @@ export async function POST(request: NextRequest) {
         alignment: {
           horizontal: 'center',
           vertical: 'middle',
-          textRotation: 0,  // UPRIGHT for auto numbers
-          wrapText: false
-        }
+          textRotation: 0,
+          wrapText: false,
+        },
       };
     }
 
@@ -111,8 +127,8 @@ export async function POST(request: NextRequest) {
           ...existingStyle,
           alignment: {
             horizontal: 'center',
-            vertical: 'middle'
-          }
+            vertical: 'middle',
+          },
         };
       }
     }
@@ -127,8 +143,8 @@ export async function POST(request: NextRequest) {
         alignment: {
           horizontal: 'center',
           vertical: 'middle',
-          textRotation: 90  // VERTICAL for dates
-        }
+          textRotation: 90,
+        },
       };
     }
 
@@ -142,16 +158,16 @@ export async function POST(request: NextRequest) {
         alignment: {
           horizontal: 'center',
           vertical: 'middle',
-          textRotation: 90  // VERTICAL for day labels
-        }
+          textRotation: 90,
+        },
       };
     }
 
-    // 🎯 STEP 2: FILL DAY NUMBERS AND LABELS (VERTICAL - 90 degrees)
+    // 📅 STEP 2: FILL DAY NUMBERS AND LABELS (VERTICAL - 90 degrees)
     console.log('📅 Step 2: Filling dates and day labels (VERTICAL)...');
     for (let i = 0; i < numWeekdays; i++) {
       const col = firstDayCol + i;
-      
+
       // Day number - VERTICAL
       const dayCell = worksheet.getCell(11, col);
       dayCell.value = weekdays[i].day;
@@ -161,10 +177,10 @@ export async function POST(request: NextRequest) {
         alignment: {
           horizontal: 'center',
           vertical: 'middle',
-          textRotation: 90  // 🎯 VERTICAL!
-        }
+          textRotation: 90,
+        },
       };
-      
+
       // Day label - VERTICAL
       const labelCell = worksheet.getCell(12, col);
       labelCell.value = weekdays[i].label;
@@ -174,19 +190,19 @@ export async function POST(request: NextRequest) {
         alignment: {
           horizontal: 'center',
           vertical: 'middle',
-          textRotation: 90  // 🎯 VERTICAL!
-        }
+          textRotation: 90,
+        },
       };
     }
 
-    // 🎯 STEP 3: FILL MALE STUDENTS
+    // 👨 STEP 3: FILL MALE STUDENTS
     console.log('👨 Step 3: Filling male students...');
     let currentRow = 14;
     let maleNumber = 1;
-    
+
     for (const student of maleStudents) {
       if (currentRow > 53) break;
-      
+
       // Auto number - UPRIGHT (0 degrees)
       const numberCell = worksheet.getCell(currentRow, 1);
       numberCell.value = maleNumber;
@@ -196,38 +212,39 @@ export async function POST(request: NextRequest) {
         alignment: {
           horizontal: 'center',
           vertical: 'middle',
-          textRotation: 0  // 🎯 UPRIGHT for numbers!
-        }
+          textRotation: 0,
+        },
       };
-      
+
       // Student name
       const nameCell = worksheet.getCell(currentRow, 2);
       nameCell.value = student.name;
-      
+
       // Attendance marks
       for (let i = 0; i < numWeekdays; i++) {
         const col = firstDayCol + i;
         const dayNumber = weekdays[i].day;
-        
-        const isPresent = student.attendance && 
-                         Array.isArray(student.attendance) && 
-                         student.attendance[dayNumber - 1] === true;
-        
+
+        const isPresent =
+          student.attendance &&
+          Array.isArray(student.attendance) &&
+          student.attendance[dayNumber - 1] === true;
+
         if (isPresent) {
           const cell = worksheet.getCell(currentRow, col);
           cell.value = '/';
         }
       }
-      
+
       // Absent count formula
       const firstDateCol = getColumnLetter(firstDayCol);
       const lastDateCol = getColumnLetter(firstDayCol + numWeekdays - 1);
-      
+
       const absentCell = worksheet.getCell(currentRow, absentCol);
       absentCell.value = {
-        formula: `${numWeekdays}-COUNTIF(${firstDateCol}${currentRow}:${lastDateCol}${currentRow},"/")`
+        formula: `${numWeekdays}-COUNTIF(${firstDateCol}${currentRow}:${lastDateCol}${currentRow},"/")`,
       };
-      
+
       maleNumber++;
       currentRow++;
     }
@@ -244,19 +261,19 @@ export async function POST(request: NextRequest) {
       alignment: {
         horizontal: 'center',
         vertical: 'middle',
-        textRotation: 0  // Label stays horizontal
+        textRotation: 0,
       },
-      font: { bold: true, size: 10 }
+      font: { bold: true, size: 10 },
     };
-    
+
     // MALE TOTAL VALUES - VERTICAL (90 degrees)
     for (let i = 0; i < numWeekdays; i++) {
       const col = firstDayCol + i;
       const colLetter = getColumnLetter(col);
-      
+
       const cell = worksheet.getCell(maleTotalRow, col);
       cell.value = {
-        formula: `COUNTIF(${colLetter}14:${colLetter}${lastMaleRow},"/")`
+        formula: `COUNTIF(${colLetter}14:${colLetter}${lastMaleRow},"/")`,
       };
       const existingStyle = cell.style || {};
       cell.style = {
@@ -264,19 +281,19 @@ export async function POST(request: NextRequest) {
         alignment: {
           horizontal: 'center',
           vertical: 'middle',
-          textRotation: 90  // 🎯 VERTICAL for totals!
-        }
+          textRotation: 90,
+        },
       };
     }
 
-    // 🎯 STEP 4: FILL FEMALE STUDENTS
+    // 👩 STEP 4: FILL FEMALE STUDENTS
     console.log('👩 Step 4: Filling female students...');
     currentRow = 55;
     let femaleNumber = 1;
-    
+
     for (const student of femaleStudents) {
       if (currentRow > 94) break;
-      
+
       // Auto number - UPRIGHT (0 degrees)
       const numberCell = worksheet.getCell(currentRow, 1);
       numberCell.value = femaleNumber;
@@ -286,38 +303,39 @@ export async function POST(request: NextRequest) {
         alignment: {
           horizontal: 'center',
           vertical: 'middle',
-          textRotation: 0  // 🎯 UPRIGHT for numbers!
-        }
+          textRotation: 0,
+        },
       };
-      
+
       // Student name
       const nameCell = worksheet.getCell(currentRow, 2);
       nameCell.value = student.name;
-      
+
       // Attendance marks
       for (let i = 0; i < numWeekdays; i++) {
         const col = firstDayCol + i;
         const dayNumber = weekdays[i].day;
-        
-        const isPresent = student.attendance && 
-                         Array.isArray(student.attendance) && 
-                         student.attendance[dayNumber - 1] === true;
-        
+
+        const isPresent =
+          student.attendance &&
+          Array.isArray(student.attendance) &&
+          student.attendance[dayNumber - 1] === true;
+
         if (isPresent) {
           const cell = worksheet.getCell(currentRow, col);
           cell.value = '/';
         }
       }
-      
+
       // Absent count formula
       const firstDateCol = getColumnLetter(firstDayCol);
       const lastDateCol = getColumnLetter(firstDayCol + numWeekdays - 1);
-      
+
       const absentCell = worksheet.getCell(currentRow, absentCol);
       absentCell.value = {
-        formula: `${numWeekdays}-COUNTIF(${firstDateCol}${currentRow}:${lastDateCol}${currentRow},"/")`
+        formula: `${numWeekdays}-COUNTIF(${firstDateCol}${currentRow}:${lastDateCol}${currentRow},"/")`,
       };
-      
+
       femaleNumber++;
       currentRow++;
     }
@@ -334,19 +352,19 @@ export async function POST(request: NextRequest) {
       alignment: {
         horizontal: 'center',
         vertical: 'middle',
-        textRotation: 0  // Label stays horizontal
+        textRotation: 0,
       },
-      font: { bold: true, size: 10 }
+      font: { bold: true, size: 10 },
     };
-    
+
     // FEMALE TOTAL VALUES - VERTICAL (90 degrees)
     for (let i = 0; i < numWeekdays; i++) {
       const col = firstDayCol + i;
       const colLetter = getColumnLetter(col);
-      
+
       const cell = worksheet.getCell(femaleTotalRow, col);
       cell.value = {
-        formula: `COUNTIF(${colLetter}55:${colLetter}${lastFemaleRow},"/")`
+        formula: `COUNTIF(${colLetter}55:${colLetter}${lastFemaleRow},"/")`,
       };
       const existingStyle = cell.style || {};
       cell.style = {
@@ -354,8 +372,8 @@ export async function POST(request: NextRequest) {
         alignment: {
           horizontal: 'center',
           vertical: 'middle',
-          textRotation: 90  // 🎯 VERTICAL for totals!
-        }
+          textRotation: 90,
+        },
       };
     }
 
@@ -371,19 +389,19 @@ export async function POST(request: NextRequest) {
       alignment: {
         horizontal: 'center',
         vertical: 'middle',
-        textRotation: 0  // Label stays horizontal
+        textRotation: 0,
       },
-      font: { bold: true, size: 10 }
+      font: { bold: true, size: 10 },
     };
-    
+
     // COMBINED TOTAL VALUES - VERTICAL (90 degrees)
     for (let i = 0; i < numWeekdays; i++) {
       const col = firstDayCol + i;
       const colLetter = getColumnLetter(col);
-      
+
       const cell = worksheet.getCell(combinedTotalRow, col);
       cell.value = {
-        formula: `${colLetter}${maleTotalRow}+${colLetter}${femaleTotalRow}`
+        formula: `${colLetter}${maleTotalRow}+${colLetter}${femaleTotalRow}`,
       };
       const existingStyle = cell.style || {};
       cell.style = {
@@ -391,8 +409,8 @@ export async function POST(request: NextRequest) {
         alignment: {
           horizontal: 'center',
           vertical: 'middle',
-          textRotation: 90  // 🎯 VERTICAL for totals!
-        }
+          textRotation: 90,
+        },
       };
     }
 
@@ -405,16 +423,20 @@ export async function POST(request: NextRequest) {
 
     return new NextResponse(buffer, {
       headers: {
-        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Type':
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'Content-Disposition': `attachment; filename="SF2_${section}_${month}_${schoolYear}.xlsx"`,
       },
     });
   } catch (error: any) {
     console.error('❌ Error:', error);
-    return NextResponse.json({ 
-      error: 'Failed to generate SF2',
-      message: error.message,
-      stack: error.stack
-    }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: 'Failed to generate SF2',
+        message: error.message,
+        stack: error.stack,
+      },
+      { status: 500 }
+    );
   }
 }
