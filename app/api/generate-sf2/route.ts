@@ -16,9 +16,11 @@ export async function POST(request: NextRequest) {
       daysInMonth,
     } = data;
 
-    // ✅ VERCEL FIX: Fetch template from public URL instead of filesystem
+    // ✅ VERCEL FIX: Get base URL from request headers (avoids 401 Unauthorized)
+    const headerUrl = request.headers.get('referer') || request.headers.get('origin') || '';
     const baseUrl =
       process.env.NEXT_PUBLIC_BASE_URL ||
+      (headerUrl ? new URL(headerUrl).origin : null) ||
       (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) ||
       'http://localhost:3000';
 
